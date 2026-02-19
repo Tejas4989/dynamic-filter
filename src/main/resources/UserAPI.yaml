@@ -1,0 +1,215 @@
+openapi: 3.1.0
+info:
+  title: User API
+  description: Dynamic filtering API for User entity
+  version: 1.0.0
+
+servers:
+  - url: /api/v1
+    description: Base API path
+
+paths:
+  /users:
+    get:
+      operationId: getUsers
+      summary: Retrieve users with dynamic filtering and sorting
+      description: |
+        Fetches users based on dynamic filter and sort criteria.
+        
+        **Filter Syntax:** `field:operator:value` (comma-separated for multiple)
+        
+        **Supported Operators:**
+        - `eq` - Equals
+        - `ne` - Not Equals
+        - `gt` - Greater Than
+        - `gte` - Greater Than or Equal
+        - `lt` - Less Than
+        - `lte` - Less Than or Equal
+        - `sw` - Starts With
+        - `ew` - Ends With
+        - `contains` - Contains
+        - `in` - In list (values in parentheses)
+        - `nin` - Not In list
+        - `null` - Is Null
+        - `notnull` - Is Not Null
+        
+        **Sort Syntax:** `field:direction` (comma-separated for multiple)
+        - Direction: `asc` or `desc`
+        
+        **Examples:**
+        - `?filter=firstName:sw:Jo,lastName:eq:Doe`
+        - `?filter=roleIds:in:(1,2,3)`
+        - `?sort=lastName:asc,firstName:desc`
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          description: |
+            Filter criteria in format: `field:operator:value`
+            Multiple filters separated by comma.
+          schema:
+            type: string
+          examples:
+            simpleFilter:
+              value: "firstName:sw:Jo"
+              summary: Starts with filter
+            multipleFilters:
+              value: "firstName:sw:Jo,lastName:eq:Doe"
+              summary: Multiple filters
+            inClause:
+              value: "roleIds:in:(1,2,3)"
+              summary: In clause filter
+        - name: sort
+          in: query
+          required: false
+          description: |
+            Sort criteria in format: `field:direction`
+            Multiple sorts separated by comma.
+          schema:
+            type: string
+          examples:
+            simpleSort:
+              value: "lastName:asc"
+              summary: Single field sort
+            multipleSort:
+              value: "lastName:asc,firstName:desc"
+              summary: Multiple field sort
+        - name: page
+          in: query
+          required: false
+          description: Page number (0-based)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Successfully retrieved users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPageResponse'
+        '400':
+          description: Invalid filter or sort syntax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/{userId}:
+    get:
+      operationId: getUserById
+      summary: Retrieve a user by ID
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int64
+          description: Unique user identifier
+        username:
+          type: string
+          description: User's unique username
+        firstName:
+          type: string
+          description: User's first name
+        lastName:
+          type: string
+          description: User's last name
+        roleIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: List of role IDs assigned to the user
+      required:
+        - userId
+        - username
+
+    UserPageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        page:
+          type: integer
+          description: Current page number
+        size:
+          type: integer
+          description: Page size
+        totalElements:
+          type: integer
+          format: int64
+          description: Total number of elements
+        totalPages:
+          type: integer
+          description: Total number of pages
+        appliedFilters:
+          type: array
+          items:
+            type: string
+          description: List of filters that were applied
+        appliedSorts:
+          type: array
+          items:
+            type: string
+          description: List of sorts that were applied
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+        details:
+          type: array
+          items:
+            type: string

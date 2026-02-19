@@ -1,0 +1,3812 @@
+================================================================================
+                     DYNAMIC FILTER POC - COMPLETE PROJECT
+================================================================================
+
+A robust, type-safe dynamic filtering system for Spring Framework (non-Boot)
+applications using Java 21 and Spring JDBC.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+1.  PROJECT OVERVIEW & FEATURES
+2.  PREREQUISITES & QUICK START
+3.  PROJECT STRUCTURE
+4.  POM.XML (Maven Configuration)
+5.  CONFIGURATION FILES
+    5.1  application.properties
+    5.2  schema.sql
+    5.3  UserAPI.yaml (OpenAPI Specification)
+6.  MAIN APPLICATION
+    6.1  LocalServer.java
+    6.2  AppConfig.java
+    6.3  DataSourceConfig.java
+7.  FILTER FRAMEWORK
+    7.1  Model Classes
+         - FilterOperator.java
+         - SortDirection.java
+         - FilterCriteria.java
+         - SortCriteria.java
+         - FilterRequest.java
+         - PageResponse.java
+    7.2  Exceptions
+         - FilterParseException.java
+         - FilterValidationException.java
+    7.3  Metadata
+         - FieldMetadata.java
+         - EntityMetadata.java
+         - EntityMetadataRegistry.java
+    7.4  Parser & Validation
+         - FilterParser.java
+         - FilterValidator.java
+    7.5  Service
+         - FilterService.java
+    7.6  SQL Builder
+         - SqlQueryBuilder.java
+8.  USER DOMAIN
+    8.1  User.java (Entity)
+    8.2  UserRepository.java
+    8.3  UserService.java
+    8.4  UserController.java
+9.  UNIT TESTS
+    9.1  FilterParserTest.java
+    9.2  EntityMetadataRegistryTest.java
+    9.3  SqlQueryBuilderTest.java
+10. API USAGE & CURL EXAMPLES
+11. EXTENDING THE SYSTEM
+
+
+================================================================================
+1. PROJECT OVERVIEW & FEATURES
+================================================================================
+
+Features:
+- Dynamic Filtering - Filter by any field using various operators
+- Dynamic Sorting - Sort by multiple fields with ASC/DESC
+- Pagination - Limit/offset based pagination
+- SQL Injection Protection - All values bound via parameterized queries
+- Reflection-based Metadata - Auto-discovers filterable fields from entity constants
+- Validation - Validates filter fields and operators against entity metadata
+- No ORM Dependencies - Pure Spring JDBC with JdbcClient
+- Java 21 Features - Records, Pattern Matching, modern APIs
+
+Tech Stack:
+| Component       | Technology                        |
+|-----------------|-----------------------------------|
+| Language        | Java 21                           |
+| Framework       | Spring Framework 6.x (non-Boot)   |
+| Database Access | Spring JDBC (JdbcClient)          |
+| Database        | H2 (in-memory, easily swappable)  |
+| Server          | Embedded Jetty 11                 |
+| Build           | Maven                             |
+
+
+================================================================================
+2. PREREQUISITES & QUICK START
+================================================================================
+
+Prerequisites:
+- Java 21+
+- Maven 3.8+
+
+Run the Server:
+```bash
+cd dynamic-filter-poc
+mvn compile exec:java
+```
+
+The server starts on http://localhost:8080 with sample data.
+
+Stop the Server:
+Press Ctrl+C or run:
+```bash
+pkill -f "exec:java"
+```
+
+Run Tests:
+```bash
+mvn test
+```
+
+
+================================================================================
+3. PROJECT STRUCTURE
+================================================================================
+
+src/main/java/com/example/
+├── LocalServer.java                 # Embedded Jetty server
+├── config/
+│   ├── AppConfig.java              # Spring configuration
+│   └── DataSourceConfig.java       # DataSource setup
+├── filter/
+│   ├── FilterService.java          # Main filter facade
+│   ├── exception/
+│   │   ├── FilterParseException.java
+│   │   └── FilterValidationException.java
+│   ├── jdbc/
+│   │   └── SqlQueryBuilder.java    # Builds parameterized SQL
+│   ├── metadata/
+│   │   ├── EntityMetadata.java     # Entity metadata container
+│   │   ├── EntityMetadataRegistry.java  # Reflection-based extraction
+│   │   └── FieldMetadata.java      # Field metadata
+│   ├── model/
+│   │   ├── FilterCriteria.java     # Filter criterion record
+│   │   ├── FilterOperator.java     # Supported operators enum
+│   │   ├── FilterRequest.java      # Combined filter/sort/pagination
+│   │   ├── PageResponse.java       # Paginated response
+│   │   ├── SortCriteria.java       # Sort criterion record
+│   │   └── SortDirection.java      # ASC/DESC enum
+│   ├── parser/
+│   │   └── FilterParser.java       # Parses filter/sort strings
+│   └── validation/
+│       └── FilterValidator.java    # Validates against metadata
+└── user/
+    ├── api/
+    │   └── UserController.java     # REST controller
+    ├── entity/
+    │   └── User.java               # User record with FIELD_* constants
+    ├── repository/
+    │   └── UserRepository.java     # JdbcClient repository
+    └── service/
+        └── UserService.java        # Service layer
+
+src/main/resources/
+├── application.properties          # Database configuration
+├── schema.sql                      # Database schema + sample data
+└── UserAPI.yaml                    # OpenAPI specification
+
+src/test/java/com/example/filter/
+├── parser/FilterParserTest.java
+├── metadata/EntityMetadataRegistryTest.java
+└── jdbc/SqlQueryBuilderTest.java
+
+
+================================================================================
+4. POM.XML (Maven Configuration)
+================================================================================
+
+FILE: pom.xml
+
+--------------------------------------------------------------------------------
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>dynamic-filter-poc</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>war</packaging>
+
+    <name>Dynamic Filter POC</name>
+    <description>Dynamic filtering API with Spring JDBC (non-Boot) and Java 21</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Spring Framework (non-Boot) -->
+        <spring.version>6.1.4</spring.version>
+
+        <!-- Jackson -->
+        <jackson.version>2.16.1</jackson.version>
+
+        <!-- Servlet API -->
+        <jakarta.servlet.version>6.0.0</jakarta.servlet.version>
+
+        <!-- Logging -->
+        <slf4j.version>2.0.12</slf4j.version>
+        <logback.version>1.4.14</logback.version>
+
+        <!-- Testing -->
+        <junit.version>5.10.2</junit.version>
+    </properties>
+
+    <dependencies>
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <!-- Spring Core & Web -->
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webmvc</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <!-- Spring JDBC (JdbcClient) - NO ORM -->
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <!-- Jackson for JSON -->
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <!-- Servlet API -->
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>${jakarta.servlet.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <!-- Logging -->
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <!-- Testing -->
+        <!-- ═══════════════════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-test</artifactId>
+            <version>${spring.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.10.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- H2 In-Memory Database for testing/development -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.2.224</version>
+        </dependency>
+        
+        <!-- Embedded Jetty for local testing -->
+        <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-server</artifactId>
+            <version>11.0.20</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-servlet</artifactId>
+            <version>11.0.20</version>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-webapp</artifactId>
+            <version>11.0.20</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.12.1</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.4.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+            <!-- Exec plugin to run the local server -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.1</version>
+                <configuration>
+                    <mainClass>com.example.LocalServer</mainClass>
+                    <classpathScope>compile</classpathScope>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+--------------------------------------------------------------------------------
+
+
+================================================================================
+5. CONFIGURATION FILES
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 FILE: src/main/resources/application.properties
+--------------------------------------------------------------------------------
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Database Configuration
+# ═══════════════════════════════════════════════════════════════════════════
+
+# H2 In-Memory Database (for development/testing)
+jdbc.driver=org.h2.Driver
+jdbc.url=jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+jdbc.username=sa
+jdbc.password=
+jdbc.initSchema=true
+
+# PostgreSQL Example (uncomment for production)
+# jdbc.driver=org.postgresql.Driver
+# jdbc.url=jdbc:postgresql://localhost:5432/userdb
+# jdbc.username=dbuser
+# jdbc.password=dbpassword
+
+# MySQL Example (uncomment for production)
+# jdbc.driver=com.mysql.cj.jdbc.Driver
+# jdbc.url=jdbc:mysql://localhost:3306/userdb
+# jdbc.username=dbuser
+# jdbc.password=dbpassword
+
+
+--------------------------------------------------------------------------------
+5.2 FILE: src/main/resources/schema.sql
+--------------------------------------------------------------------------------
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Database Schema for User Entity
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Users table
+CREATE TABLE IF NOT EXISTS users (
+    user_id     BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username    VARCHAR(50) NOT NULL UNIQUE,
+    first_name  VARCHAR(100),
+    last_name   VARCHAR(100),
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Roles table (for reference)
+CREATE TABLE IF NOT EXISTS roles (
+    role_id     BIGINT PRIMARY KEY AUTO_INCREMENT,
+    role_name   VARCHAR(50) NOT NULL UNIQUE
+);
+
+-- User-Role junction table (many-to-many)
+CREATE TABLE IF NOT EXISTS user_roles (
+    user_id     BIGINT NOT NULL,
+    role_id     BIGINT NOT NULL,
+    PRIMARY KEY (user_id, role_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES roles(role_id) ON DELETE CASCADE
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_first_name ON users(first_name);
+CREATE INDEX IF NOT EXISTS idx_users_last_name ON users(last_name);
+CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON user_roles(role_id);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Sample Data
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Insert sample roles
+INSERT INTO roles (role_id, role_name) VALUES (1, 'ADMIN');
+INSERT INTO roles (role_id, role_name) VALUES (2, 'USER');
+INSERT INTO roles (role_id, role_name) VALUES (3, 'MODERATOR');
+
+-- Insert sample users
+INSERT INTO users (user_id, username, first_name, last_name) VALUES 
+    (1, 'jdoe', 'John', 'Doe'),
+    (2, 'jsmith', 'Jane', 'Smith'),
+    (3, 'bwilson', 'Bob', 'Wilson'),
+    (4, 'ajohnson', 'Alice', 'Johnson'),
+    (5, 'mgarcia', 'Maria', 'Garcia');
+
+-- Assign roles to users
+INSERT INTO user_roles (user_id, role_id) VALUES 
+    (1, 1), (1, 2),           -- John: ADMIN, USER
+    (2, 2),                   -- Jane: USER
+    (3, 2), (3, 3),           -- Bob: USER, MODERATOR
+    (4, 1), (4, 2), (4, 3),   -- Alice: ADMIN, USER, MODERATOR
+    (5, 2);                   -- Maria: USER
+
+
+--------------------------------------------------------------------------------
+5.3 FILE: src/main/resources/UserAPI.yaml
+--------------------------------------------------------------------------------
+
+openapi: 3.1.0
+info:
+  title: User API
+  description: Dynamic filtering API for User entity
+  version: 1.0.0
+
+servers:
+  - url: /api/v1
+    description: Base API path
+
+paths:
+  /users:
+    get:
+      operationId: getUsers
+      summary: Retrieve users with dynamic filtering and sorting
+      description: |
+        Fetches users based on dynamic filter and sort criteria.
+        
+        **Filter Syntax:** `field:operator:value` (comma-separated for multiple)
+        
+        **Supported Operators:**
+        - `eq` - Equals
+        - `ne` - Not Equals
+        - `gt` - Greater Than
+        - `gte` - Greater Than or Equal
+        - `lt` - Less Than
+        - `lte` - Less Than or Equal
+        - `sw` - Starts With
+        - `ew` - Ends With
+        - `contains` - Contains
+        - `in` - In list (values in parentheses)
+        - `nin` - Not In list
+        - `null` - Is Null
+        - `notnull` - Is Not Null
+        
+        **Sort Syntax:** `field:direction` (comma-separated for multiple)
+        - Direction: `asc` or `desc`
+        
+        **Examples:**
+        - `?filter=firstName:sw:Jo,lastName:eq:Doe`
+        - `?filter=roleIds:in:(1,2,3)`
+        - `?sort=lastName:asc,firstName:desc`
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          description: |
+            Filter criteria in format: `field:operator:value`
+            Multiple filters separated by comma.
+          schema:
+            type: string
+          examples:
+            simpleFilter:
+              value: "firstName:sw:Jo"
+              summary: Starts with filter
+            multipleFilters:
+              value: "firstName:sw:Jo,lastName:eq:Doe"
+              summary: Multiple filters
+            inClause:
+              value: "roleIds:in:(1,2,3)"
+              summary: In clause filter
+        - name: sort
+          in: query
+          required: false
+          description: |
+            Sort criteria in format: `field:direction`
+            Multiple sorts separated by comma.
+          schema:
+            type: string
+          examples:
+            simpleSort:
+              value: "lastName:asc"
+              summary: Single field sort
+            multipleSort:
+              value: "lastName:asc,firstName:desc"
+              summary: Multiple field sort
+        - name: page
+          in: query
+          required: false
+          description: Page number (0-based)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Successfully retrieved users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPageResponse'
+        '400':
+          description: Invalid filter or sort syntax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/{userId}:
+    get:
+      operationId: getUserById
+      summary: Retrieve a user by ID
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int64
+          description: Unique user identifier
+        username:
+          type: string
+          description: User's unique username
+        firstName:
+          type: string
+          description: User's first name
+        lastName:
+          type: string
+          description: User's last name
+        roleIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: List of role IDs assigned to the user
+      required:
+        - userId
+        - username
+
+    UserPageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        page:
+          type: integer
+          description: Current page number
+        size:
+          type: integer
+          description: Page size
+        totalElements:
+          type: integer
+          format: int64
+          description: Total number of elements
+        totalPages:
+          type: integer
+          description: Total number of pages
+        appliedFilters:
+          type: array
+          items:
+            type: string
+          description: List of filters that were applied
+        appliedSorts:
+          type: array
+          items:
+            type: string
+          description: List of sorts that were applied
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+        details:
+          type: array
+          items:
+            type: string
+
+
+================================================================================
+6. MAIN APPLICATION
+================================================================================
+
+--------------------------------------------------------------------------------
+6.1 FILE: src/main/java/com/example/LocalServer.java
+--------------------------------------------------------------------------------
+
+package com.example;
+
+import com.example.config.AppConfig;
+import com.example.config.DataSourceConfig;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
+import org.springframework.web.servlet.DispatcherServlet;
+
+/**
+ * Embedded Jetty server for local development and testing.
+ * 
+ * Run with: mvn compile exec:java
+ * Or run this main class directly from IDE.
+ */
+public class LocalServer {
+    
+    private static final int PORT = 8080;
+    
+    public static void main(String[] args) throws Exception {
+        Server server = new Server(PORT);
+        
+        // Create Spring application context
+        AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext();
+        context.register(AppConfig.class, DataSourceConfig.class);
+        
+        // Create DispatcherServlet
+        DispatcherServlet dispatcherServlet = new DispatcherServlet(context);
+        
+        // Setup Jetty servlet context
+        ServletContextHandler servletHandler = new ServletContextHandler();
+        servletHandler.setContextPath("/");
+        servletHandler.addServlet(new ServletHolder(dispatcherServlet), "/*");
+        
+        server.setHandler(servletHandler);
+        
+        // Initialize database with sample data
+        System.out.println("═══════════════════════════════════════════════════════════════");
+        System.out.println("  Starting Dynamic Filter POC Server on port " + PORT);
+        System.out.println("═══════════════════════════════════════════════════════════════");
+        
+        server.start();
+        
+        System.out.println();
+        System.out.println("  Server started successfully!");
+        System.out.println();
+        System.out.println("  Try these API calls:");
+        System.out.println();
+        System.out.println("  # Get all users");
+        System.out.println("  curl http://localhost:8080/api/v1/users");
+        System.out.println();
+        System.out.println("  # Filter by firstName starts with 'J'");
+        System.out.println("  curl \"http://localhost:8080/api/v1/users?filter=firstName:sw:J\"");
+        System.out.println();
+        System.out.println("  # Filter by lastName equals 'Doe'");
+        System.out.println("  curl \"http://localhost:8080/api/v1/users?filter=lastName:eq:Doe\"");
+        System.out.println();
+        System.out.println("  # Filter with IN clause (roleIds in 1,2)");
+        System.out.println("  curl \"http://localhost:8080/api/v1/users?filter=roleIds:in:(1,2)\"");
+        System.out.println();
+        System.out.println("  # Multiple filters + sort");
+        System.out.println("  curl \"http://localhost:8080/api/v1/users?filter=firstName:sw:J,lastName:notnull&sort=lastName:asc\"");
+        System.out.println();
+        System.out.println("  # Pagination");
+        System.out.println("  curl \"http://localhost:8080/api/v1/users?limit=2&offset=0\"");
+        System.out.println();
+        System.out.println("  # Get available fields");
+        System.out.println("  curl http://localhost:8080/api/v1/users/metadata/fields");
+        System.out.println();
+        System.out.println("  # Get user by ID");
+        System.out.println("  curl http://localhost:8080/api/v1/users/1");
+        System.out.println();
+        System.out.println("═══════════════════════════════════════════════════════════════");
+        System.out.println("  Press Ctrl+C to stop the server");
+        System.out.println("═══════════════════════════════════════════════════════════════");
+        
+        server.join();
+    }
+}
+
+
+--------------------------------------------------------------------------------
+6.2 FILE: src/main/java/com/example/config/AppConfig.java
+--------------------------------------------------------------------------------
+
+package com.example.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import javax.sql.DataSource;
+
+/**
+ * Main Spring configuration class for the application.
+ * 
+ * <p>Configures:
+ * <ul>
+ *   <li>Component scanning for all com.example packages</li>
+ *   <li>JdbcClient for database access</li>
+ *   <li>Transaction management</li>
+ *   <li>Web MVC setup</li>
+ * </ul>
+ */
+@Configuration
+@EnableWebMvc
+@EnableTransactionManagement
+@ComponentScan(basePackages = "com.example")
+public class AppConfig implements WebMvcConfigurer {
+    
+    /**
+     * Creates the JdbcClient bean from the DataSource.
+     * 
+     * <p>JdbcClient is Spring 6's modern, fluent API for JDBC access.
+     * It provides a cleaner alternative to JdbcTemplate with better
+     * type safety and method chaining.</p>
+     *
+     * @param dataSource the configured DataSource
+     * @return the JdbcClient instance
+     */
+    @Bean
+    public JdbcClient jdbcClient(DataSource dataSource) {
+        return JdbcClient.create(dataSource);
+    }
+    
+    /**
+     * Transaction manager for JDBC operations.
+     */
+    @Bean
+    public PlatformTransactionManager transactionManager(DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
+}
+
+
+--------------------------------------------------------------------------------
+6.3 FILE: src/main/java/com/example/config/DataSourceConfig.java
+--------------------------------------------------------------------------------
+
+package com.example.config;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.init.DatabasePopulatorUtils;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
+
+import javax.sql.DataSource;
+
+/**
+ * DataSource configuration.
+ * 
+ * <p>Configure your database connection properties in application.properties
+ * or override this configuration for your specific database.</p>
+ */
+@Configuration
+@PropertySource(value = "classpath:application.properties", ignoreResourceNotFound = true)
+public class DataSourceConfig {
+    
+    @Value("${jdbc.driver:org.h2.Driver}")
+    private String driverClassName;
+    
+    @Value("${jdbc.url:jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1}")
+    private String url;
+    
+    @Value("${jdbc.username:sa}")
+    private String username;
+    
+    @Value("${jdbc.password:}")
+    private String password;
+    
+    @Value("${jdbc.initSchema:true}")
+    private boolean initSchema;
+    
+    /**
+     * Creates the DataSource bean and initializes the schema.
+     * 
+     * <p>For production use, consider using a connection pool like HikariCP.</p>
+     */
+    @Bean
+    public DataSource dataSource() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setDriverClassName(driverClassName);
+        dataSource.setUrl(url);
+        dataSource.setUsername(username);
+        dataSource.setPassword(password);
+        
+        // Initialize schema with sample data if enabled
+        if (initSchema) {
+            ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
+            populator.addScript(new ClassPathResource("schema.sql"));
+            populator.setContinueOnError(true);
+            DatabasePopulatorUtils.execute(populator, dataSource);
+        }
+        
+        return dataSource;
+    }
+}
+
+
+================================================================================
+7. FILTER FRAMEWORK
+================================================================================
+
+--------------------------------------------------------------------------------
+7.1 MODEL CLASSES
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/model/FilterOperator.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.model;
+
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+/**
+ * Enumeration of supported filter operators with their SQL mappings.
+ * 
+ * <p>Each operator defines how a field value comparison is translated to SQL.</p>
+ */
+public enum FilterOperator {
+    
+    // Equality operators
+    EQ("eq", "=", false, "Equals"),
+    NE("ne", "<>", false, "Not Equals"),
+    
+    // Comparison operators
+    GT("gt", ">", false, "Greater Than"),
+    GTE("gte", ">=", false, "Greater Than or Equal"),
+    LT("lt", "<", false, "Less Than"),
+    LTE("lte", "<=", false, "Less Than or Equal"),
+    
+    // String operators (use LIKE)
+    STARTS_WITH("sw", "LIKE", true, "Starts With"),
+    ENDS_WITH("ew", "LIKE", true, "Ends With"),
+    CONTAINS("contains", "LIKE", true, "Contains"),
+    
+    // Collection operators
+    IN("in", "IN", false, "In List"),
+    NOT_IN("nin", "NOT IN", false, "Not In List"),
+    
+    // Null operators
+    IS_NULL("null", "IS NULL", false, "Is Null"),
+    IS_NOT_NULL("notnull", "IS NOT NULL", false, "Is Not Null");
+    
+    private final String code;
+    private final String sqlOperator;
+    private final boolean requiresPatternValue;
+    private final String description;
+    
+    // Cache for O(1) lookup by code
+    private static final Map<String, FilterOperator> CODE_MAP = Arrays.stream(values())
+            .collect(Collectors.toUnmodifiableMap(
+                FilterOperator::getCode,
+                Function.identity()
+            ));
+    
+    FilterOperator(String code, String sqlOperator, boolean requiresPatternValue, String description) {
+        this.code = code;
+        this.sqlOperator = sqlOperator;
+        this.requiresPatternValue = requiresPatternValue;
+        this.description = description;
+    }
+    
+    public String getCode() {
+        return code;
+    }
+    
+    public String getSqlOperator() {
+        return sqlOperator;
+    }
+    
+    public boolean requiresPatternValue() {
+        return requiresPatternValue;
+    }
+    
+    public String getDescription() {
+        return description;
+    }
+    
+    /**
+     * Checks if this operator requires a value (non-null operators do).
+     */
+    public boolean requiresValue() {
+        return this != IS_NULL && this != IS_NOT_NULL;
+    }
+    
+    /**
+     * Checks if this operator works with collections.
+     */
+    public boolean isCollectionOperator() {
+        return this == IN || this == NOT_IN;
+    }
+    
+    /**
+     * Looks up an operator by its code (case-insensitive).
+     *
+     * @param code the operator code (e.g., "eq", "sw", "in")
+     * @return Optional containing the operator, or empty if not found
+     */
+    public static Optional<FilterOperator> fromCode(String code) {
+        if (code == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(CODE_MAP.get(code.toLowerCase()));
+    }
+    
+    /**
+     * Transforms the value for LIKE operations.
+     *
+     * @param value the original value
+     * @return the pattern value for SQL LIKE
+     */
+    public String transformValueForLike(String value) {
+        return switch (this) {
+            case STARTS_WITH -> value + "%";
+            case ENDS_WITH -> "%" + value;
+            case CONTAINS -> "%" + value + "%";
+            default -> value;
+        };
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/model/SortDirection.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.model;
+
+import java.util.Optional;
+
+/**
+ * Sort direction enumeration.
+ */
+public enum SortDirection {
+    ASC("asc", "ASC"),
+    DESC("desc", "DESC");
+    
+    private final String code;
+    private final String sql;
+    
+    SortDirection(String code, String sql) {
+        this.code = code;
+        this.sql = sql;
+    }
+    
+    public String getCode() {
+        return code;
+    }
+    
+    public String getSql() {
+        return sql;
+    }
+    
+    /**
+     * Looks up direction by code (case-insensitive).
+     */
+    public static Optional<SortDirection> fromCode(String code) {
+        if (code == null) {
+            return Optional.empty();
+        }
+        String lower = code.toLowerCase();
+        for (SortDirection dir : values()) {
+            if (dir.code.equals(lower)) {
+                return Optional.of(dir);
+            }
+        }
+        return Optional.empty();
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/model/FilterCriteria.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.model;
+
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Represents a single filter criterion.
+ *
+ * @param field the field name to filter on
+ * @param operator the filter operator
+ * @param value the filter value (single value for most operators)
+ * @param values list of values for IN/NOT IN operators
+ */
+public record FilterCriteria(
+    String field,
+    FilterOperator operator,
+    String value,
+    List<String> values
+) {
+    public FilterCriteria {
+        Objects.requireNonNull(field, "field cannot be null");
+        Objects.requireNonNull(operator, "operator cannot be null");
+        values = values != null ? List.copyOf(values) : List.of();
+    }
+    
+    /**
+     * Creates a single-value filter criterion.
+     */
+    public static FilterCriteria of(String field, FilterOperator operator, String value) {
+        return new FilterCriteria(field, operator, value, List.of());
+    }
+    
+    /**
+     * Creates a multi-value filter criterion (for IN/NOT IN).
+     */
+    public static FilterCriteria ofMulti(String field, FilterOperator operator, List<String> values) {
+        return new FilterCriteria(field, operator, null, values);
+    }
+    
+    /**
+     * Creates a null-check filter criterion.
+     */
+    public static FilterCriteria ofNullCheck(String field, FilterOperator operator) {
+        return new FilterCriteria(field, operator, null, List.of());
+    }
+    
+    /**
+     * @return true if this is a multi-value filter (IN/NOT IN)
+     */
+    public boolean isMultiValue() {
+        return operator.isCollectionOperator();
+    }
+    
+    /**
+     * @return true if this is a null-check filter
+     */
+    public boolean isNullCheck() {
+        return !operator.requiresValue();
+    }
+    
+    @Override
+    public String toString() {
+        if (isNullCheck()) {
+            return "%s:%s".formatted(field, operator.getCode());
+        } else if (isMultiValue()) {
+            return "%s:%s:(%s)".formatted(field, operator.getCode(), String.join(",", values));
+        }
+        return "%s:%s:%s".formatted(field, operator.getCode(), value);
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/model/SortCriteria.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.model;
+
+import java.util.Objects;
+
+/**
+ * Represents a single sort criterion.
+ *
+ * @param field the field to sort by
+ * @param direction the sort direction
+ */
+public record SortCriteria(
+    String field,
+    SortDirection direction
+) {
+    public SortCriteria {
+        Objects.requireNonNull(field, "field cannot be null");
+        direction = direction != null ? direction : SortDirection.ASC;
+    }
+    
+    public static SortCriteria asc(String field) {
+        return new SortCriteria(field, SortDirection.ASC);
+    }
+    
+    public static SortCriteria desc(String field) {
+        return new SortCriteria(field, SortDirection.DESC);
+    }
+    
+    @Override
+    public String toString() {
+        return "%s:%s".formatted(field, direction.getCode());
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/model/FilterRequest.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.model;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Unified request object for filtering, sorting, and pagination.
+ * 
+ * <p>Designed to integrate with existing pagination patterns. Can be extended
+ * or composed with your existing PaginationRequest.</p>
+ *
+ * @param limit maximum number of records to return
+ * @param offset number of records to skip
+ * @param filterString raw filter string (e.g., "firstName:sw:Jo,roleIds:in:(1,2,3)")
+ * @param sortString raw sort string (e.g., "lastName:asc,firstName:desc")
+ * @param filters parsed filter criteria (populated after parsing)
+ * @param sorts parsed sort criteria (populated after parsing)
+ * @param sourceClass the source/DTO class for field mapping
+ * @param entityClass the target entity class
+ * @param fieldMapping maps source field names to entity field names
+ */
+public record FilterRequest(
+    Integer limit,
+    Integer offset,
+    String filterString,
+    String sortString,
+    List<FilterCriteria> filters,
+    List<SortCriteria> sorts,
+    Class<?> sourceClass,
+    Class<?> entityClass,
+    Map<String, String> fieldMapping
+) {
+    public static final int DEFAULT_LIMIT = 20;
+    public static final int DEFAULT_OFFSET = 0;
+    public static final int MAX_LIMIT = 100;
+    
+    public FilterRequest {
+        limit = limit != null && limit > 0 ? Math.min(limit, MAX_LIMIT) : DEFAULT_LIMIT;
+        offset = offset != null && offset >= 0 ? offset : DEFAULT_OFFSET;
+        filters = filters != null ? List.copyOf(filters) : List.of();
+        sorts = sorts != null ? List.copyOf(sorts) : List.of();
+        fieldMapping = fieldMapping != null ? Map.copyOf(fieldMapping) : Map.of();
+    }
+    
+    /**
+     * Creates a request from raw strings (filters/sorts will be parsed later).
+     */
+    public static FilterRequest of(Integer limit, Integer offset, String filterString, String sortString) {
+        return new FilterRequest(limit, offset, filterString, sortString, 
+                                 List.of(), List.of(), null, null, Map.of());
+    }
+    
+    /**
+     * Creates a request with entity class for validation.
+     */
+    public static FilterRequest of(Integer limit, Integer offset, String filterString, 
+                                   String sortString, Class<?> entityClass) {
+        return new FilterRequest(limit, offset, filterString, sortString,
+                                 List.of(), List.of(), null, entityClass, Map.of());
+    }
+    
+    /**
+     * Creates a request with field mapping support.
+     */
+    public static FilterRequest of(Integer limit, Integer offset, String filterString,
+                                   String sortString, Class<?> sourceClass, Class<?> entityClass,
+                                   Map<String, String> fieldMapping) {
+        return new FilterRequest(limit, offset, filterString, sortString,
+                                 List.of(), List.of(), sourceClass, entityClass, fieldMapping);
+    }
+    
+    /**
+     * Returns a new request with parsed filters and sorts.
+     */
+    public FilterRequest withParsedCriteria(List<FilterCriteria> filters, List<SortCriteria> sorts) {
+        return new FilterRequest(limit, offset, filterString, sortString,
+                                 filters, sorts, sourceClass, entityClass, fieldMapping);
+    }
+    
+    /**
+     * Calculates page number from offset and limit.
+     */
+    public int page() {
+        return limit > 0 ? offset / limit : 0;
+    }
+    
+    /**
+     * Maps a source field name to entity field name.
+     */
+    public String mapField(String sourceField) {
+        return fieldMapping.getOrDefault(sourceField, sourceField);
+    }
+    
+    /**
+     * @return true if there are any filters
+     */
+    public boolean hasFilters() {
+        return !filters.isEmpty() || (filterString != null && !filterString.isBlank());
+    }
+    
+    /**
+     * @return true if there are any sorts
+     */
+    public boolean hasSorts() {
+        return !sorts.isEmpty() || (sortString != null && !sortString.isBlank());
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/model/PageResponse.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.model;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.function.Function;
+
+/**
+ * Generic page response for paginated queries.
+ *
+ * @param <T> the element type
+ * @param content the page content
+ * @param page current page number
+ * @param size page size
+ * @param totalElements total number of elements
+ * @param appliedFilters list of applied filter descriptions
+ * @param appliedSorts list of applied sort descriptions
+ */
+public record PageResponse<T>(
+    List<T> content,
+    int page,
+    int size,
+    long totalElements,
+    List<String> appliedFilters,
+    List<String> appliedSorts
+) {
+    public PageResponse {
+        content = content != null ? List.copyOf(content) : List.of();
+        appliedFilters = appliedFilters != null ? List.copyOf(appliedFilters) : List.of();
+        appliedSorts = appliedSorts != null ? List.copyOf(appliedSorts) : List.of();
+    }
+    
+    /**
+     * @return total number of pages
+     */
+    public int totalPages() {
+        return size > 0 ? (int) Math.ceil((double) totalElements / size) : 0;
+    }
+    
+    /**
+     * @return true if this is the first page
+     */
+    public boolean isFirst() {
+        return page == 0;
+    }
+    
+    /**
+     * @return true if this is the last page
+     */
+    public boolean isLast() {
+        return page >= totalPages() - 1;
+    }
+    
+    /**
+     * @return true if there's a next page
+     */
+    public boolean hasNext() {
+        return page < totalPages() - 1;
+    }
+    
+    /**
+     * @return true if there's a previous page
+     */
+    public boolean hasPrevious() {
+        return page > 0;
+    }
+    
+    /**
+     * @return number of elements in this page
+     */
+    public int numberOfElements() {
+        return content.size();
+    }
+    
+    /**
+     * Maps the content to a different type.
+     */
+    public <U> PageResponse<U> map(Function<T, U> mapper) {
+        Objects.requireNonNull(mapper);
+        List<U> mappedContent = content.stream().map(mapper).toList();
+        return new PageResponse<>(mappedContent, page, size, totalElements, appliedFilters, appliedSorts);
+    }
+    
+    /**
+     * Creates an empty page response.
+     */
+    public static <T> PageResponse<T> empty() {
+        return new PageResponse<>(List.of(), 0, 20, 0, List.of(), List.of());
+    }
+    
+    /**
+     * Builder for convenient construction.
+     */
+    public static <T> Builder<T> builder() {
+        return new Builder<>();
+    }
+    
+    public static final class Builder<T> {
+        private List<T> content = List.of();
+        private int page = 0;
+        private int size = 20;
+        private long totalElements = 0;
+        private List<String> appliedFilters = List.of();
+        private List<String> appliedSorts = List.of();
+        
+        private Builder() {}
+        
+        public Builder<T> content(List<T> content) {
+            this.content = content;
+            return this;
+        }
+        
+        public Builder<T> page(int page) {
+            this.page = page;
+            return this;
+        }
+        
+        public Builder<T> size(int size) {
+            this.size = size;
+            return this;
+        }
+        
+        public Builder<T> totalElements(long totalElements) {
+            this.totalElements = totalElements;
+            return this;
+        }
+        
+        public Builder<T> appliedFilters(List<String> appliedFilters) {
+            this.appliedFilters = appliedFilters;
+            return this;
+        }
+        
+        public Builder<T> appliedSorts(List<String> appliedSorts) {
+            this.appliedSorts = appliedSorts;
+            return this;
+        }
+        
+        public PageResponse<T> build() {
+            return new PageResponse<>(content, page, size, totalElements, appliedFilters, appliedSorts);
+        }
+    }
+}
+
+
+--------------------------------------------------------------------------------
+7.2 EXCEPTIONS
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/exception/FilterParseException.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.exception;
+
+import java.util.List;
+
+/**
+ * Exception thrown when filter parsing fails.
+ */
+public class FilterParseException extends RuntimeException {
+    
+    private final List<String> errors;
+    
+    public FilterParseException(String message) {
+        super(message);
+        this.errors = List.of(message);
+    }
+    
+    public FilterParseException(String message, List<String> errors) {
+        super(message);
+        this.errors = List.copyOf(errors);
+    }
+    
+    public FilterParseException(String message, Throwable cause) {
+        super(message, cause);
+        this.errors = List.of(message);
+    }
+    
+    public List<String> getErrors() {
+        return errors;
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/exception/FilterValidationException.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.exception;
+
+import java.util.List;
+
+/**
+ * Exception thrown when filter validation fails.
+ */
+public class FilterValidationException extends RuntimeException {
+    
+    private final List<String> errors;
+    
+    public FilterValidationException(String message) {
+        super(message);
+        this.errors = List.of(message);
+    }
+    
+    public FilterValidationException(String message, List<String> errors) {
+        super(message);
+        this.errors = List.copyOf(errors);
+    }
+    
+    public List<String> getErrors() {
+        return errors;
+    }
+}
+
+
+--------------------------------------------------------------------------------
+7.3 METADATA
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/metadata/FieldMetadata.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.metadata;
+
+import java.util.Objects;
+
+/**
+ * Metadata for a filterable/sortable field.
+ *
+ * @param fieldName the Java field name (used in filter expressions)
+ * @param columnName the database column name
+ * @param fieldType the Java type of the field
+ * @param filterable whether this field can be filtered
+ * @param sortable whether this field can be sorted
+ */
+public record FieldMetadata(
+    String fieldName,
+    String columnName,
+    Class<?> fieldType,
+    boolean filterable,
+    boolean sortable
+) {
+    public FieldMetadata {
+        Objects.requireNonNull(fieldName, "fieldName cannot be null");
+        Objects.requireNonNull(columnName, "columnName cannot be null");
+        Objects.requireNonNull(fieldType, "fieldType cannot be null");
+    }
+    
+    /**
+     * Creates a field metadata that is both filterable and sortable.
+     */
+    public static FieldMetadata of(String fieldName, String columnName, Class<?> fieldType) {
+        return new FieldMetadata(fieldName, columnName, fieldType, true, true);
+    }
+    
+    /**
+     * Creates a field metadata with specified filter/sort capabilities.
+     */
+    public static FieldMetadata of(String fieldName, String columnName, Class<?> fieldType, 
+                                   boolean filterable, boolean sortable) {
+        return new FieldMetadata(fieldName, columnName, fieldType, filterable, sortable);
+    }
+    
+    /**
+     * Checks if the field type is numeric.
+     */
+    public boolean isNumeric() {
+        return Number.class.isAssignableFrom(fieldType) 
+            || fieldType == int.class 
+            || fieldType == long.class 
+            || fieldType == double.class 
+            || fieldType == float.class;
+    }
+    
+    /**
+     * Checks if the field type is a String.
+     */
+    public boolean isString() {
+        return String.class.isAssignableFrom(fieldType);
+    }
+    
+    /**
+     * Checks if the field is a collection type.
+     */
+    public boolean isCollection() {
+        return java.util.Collection.class.isAssignableFrom(fieldType);
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/metadata/EntityMetadata.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.metadata;
+
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Holds metadata for an entity including all filterable/sortable fields.
+ *
+ * @param entityClass the entity class
+ * @param tableName the database table name
+ * @param fields map of field name to field metadata
+ */
+public record EntityMetadata(
+    Class<?> entityClass,
+    String tableName,
+    Map<String, FieldMetadata> fields
+) {
+    public EntityMetadata {
+        Objects.requireNonNull(entityClass, "entityClass cannot be null");
+        Objects.requireNonNull(tableName, "tableName cannot be null");
+        fields = fields != null ? Map.copyOf(fields) : Map.of();
+    }
+    
+    /**
+     * Gets metadata for a specific field.
+     */
+    public Optional<FieldMetadata> getField(String fieldName) {
+        return Optional.ofNullable(fields.get(fieldName));
+    }
+    
+    /**
+     * Checks if a field is valid for filtering.
+     */
+    public boolean isFilterableField(String fieldName) {
+        return getField(fieldName).map(FieldMetadata::filterable).orElse(false);
+    }
+    
+    /**
+     * Checks if a field is valid for sorting.
+     */
+    public boolean isSortableField(String fieldName) {
+        return getField(fieldName).map(FieldMetadata::sortable).orElse(false);
+    }
+    
+    /**
+     * Gets the column name for a field.
+     */
+    public Optional<String> getColumnName(String fieldName) {
+        return getField(fieldName).map(FieldMetadata::columnName);
+    }
+    
+    /**
+     * Gets all filterable field names.
+     */
+    public Set<String> getFilterableFields() {
+        return fields.entrySet().stream()
+            .filter(e -> e.getValue().filterable())
+            .map(Map.Entry::getKey)
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+    
+    /**
+     * Gets all sortable field names.
+     */
+    public Set<String> getSortableFields() {
+        return fields.entrySet().stream()
+            .filter(e -> e.getValue().sortable())
+            .map(Map.Entry::getKey)
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/metadata/EntityMetadataRegistry.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.metadata;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.RecordComponent;
+import java.lang.reflect.Type;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Registry that extracts and caches entity metadata using reflection.
+ * 
+ * <p>Discovers filterable fields by scanning for public static final String constants
+ * that follow the naming convention: {@code FIELD_*} where the value matches
+ * a record component name.</p>
+ * 
+ * <p>Also discovers column mappings from {@code COL_*} constants.</p>
+ * 
+ * <p>This class is thread-safe and caches metadata for performance.</p>
+ */
+public final class EntityMetadataRegistry {
+    
+    private static final Pattern FIELD_CONSTANT_PATTERN = Pattern.compile("FIELD_(.+)");
+    private static final Pattern COL_CONSTANT_PATTERN = Pattern.compile("COL_(.+)");
+    private static final String TABLE_NAME_CONSTANT = "TABLE_NAME";
+    
+    // Thread-safe cache for entity metadata
+    private final ConcurrentHashMap<Class<?>, EntityMetadata> metadataCache = new ConcurrentHashMap<>();
+    
+    // Singleton instance
+    private static final EntityMetadataRegistry INSTANCE = new EntityMetadataRegistry();
+    
+    private EntityMetadataRegistry() {}
+    
+    /**
+     * Gets the singleton instance.
+     */
+    public static EntityMetadataRegistry getInstance() {
+        return INSTANCE;
+    }
+    
+    /**
+     * Registers and extracts metadata for an entity class.
+     * 
+     * @param entityClass the entity class to register
+     * @return the extracted metadata
+     */
+    public EntityMetadata register(Class<?> entityClass) {
+        return metadataCache.computeIfAbsent(entityClass, this::extractMetadata);
+    }
+    
+    /**
+     * Gets metadata for an entity class if registered.
+     */
+    public Optional<EntityMetadata> get(Class<?> entityClass) {
+        return Optional.ofNullable(metadataCache.get(entityClass));
+    }
+    
+    /**
+     * Gets metadata for an entity, registering it if not already present.
+     */
+    public EntityMetadata getOrRegister(Class<?> entityClass) {
+        return register(entityClass);
+    }
+    
+    /**
+     * Clears the metadata cache.
+     */
+    public void clear() {
+        metadataCache.clear();
+    }
+    
+    /**
+     * Extracts metadata from an entity class using reflection.
+     */
+    private EntityMetadata extractMetadata(Class<?> entityClass) {
+        String tableName = extractTableName(entityClass);
+        Map<String, String> columnMappings = extractColumnMappings(entityClass);
+        Map<String, FieldMetadata> fields = extractFieldMetadata(entityClass, columnMappings);
+        
+        return new EntityMetadata(entityClass, tableName, fields);
+    }
+    
+    /**
+     * Extracts table name from TABLE_NAME constant or derives from class name.
+     */
+    private String extractTableName(Class<?> entityClass) {
+        try {
+            Field tableNameField = entityClass.getDeclaredField(TABLE_NAME_CONSTANT);
+            if (isPublicStaticFinalString(tableNameField)) {
+                return (String) tableNameField.get(null);
+            }
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            // Fall through to derive from class name
+        }
+        // Convert class name to snake_case (e.g., User -> users, UserRole -> user_roles)
+        return toSnakeCase(entityClass.getSimpleName()) + "s";
+    }
+    
+    /**
+     * Extracts column mappings from COL_* constants.
+     */
+    private Map<String, String> extractColumnMappings(Class<?> entityClass) {
+        Map<String, String> mappings = new HashMap<>();
+        
+        for (Field field : entityClass.getDeclaredFields()) {
+            if (!isPublicStaticFinalString(field)) {
+                continue;
+            }
+            
+            Matcher matcher = COL_CONSTANT_PATTERN.matcher(field.getName());
+            if (matcher.matches()) {
+                String constantSuffix = matcher.group(1); // e.g., "USER_ID" from "COL_USER_ID"
+                try {
+                    String columnName = (String) field.get(null);
+                    // Convert constant suffix to camelCase field name
+                    String fieldName = constantSuffixToFieldName(constantSuffix);
+                    mappings.put(fieldName, columnName);
+                } catch (IllegalAccessException e) {
+                    // Skip inaccessible fields
+                }
+            }
+        }
+        
+        return mappings;
+    }
+    
+    /**
+     * Extracts field metadata from FIELD_* constants and record components.
+     */
+    private Map<String, FieldMetadata> extractFieldMetadata(Class<?> entityClass, 
+                                                             Map<String, String> columnMappings) {
+        Map<String, FieldMetadata> fields = new HashMap<>();
+        
+        // Get record components for type information
+        Map<String, Class<?>> componentTypes = extractRecordComponentTypes(entityClass);
+        
+        // Scan for FIELD_* constants
+        for (Field field : entityClass.getDeclaredFields()) {
+            if (!isPublicStaticFinalString(field)) {
+                continue;
+            }
+            
+            Matcher matcher = FIELD_CONSTANT_PATTERN.matcher(field.getName());
+            if (matcher.matches()) {
+                try {
+                    String fieldName = (String) field.get(null);
+                    
+                    // Validate that this field exists as a record component
+                    Class<?> fieldType = componentTypes.get(fieldName);
+                    if (fieldType == null) {
+                        // Not a valid record component, skip
+                        continue;
+                    }
+                    
+                    // Get column name from mappings or derive from field name
+                    String columnName = columnMappings.getOrDefault(fieldName, toSnakeCase(fieldName));
+                    
+                    // Create field metadata (all discovered fields are filterable and sortable by default)
+                    fields.put(fieldName, FieldMetadata.of(fieldName, columnName, fieldType));
+                    
+                } catch (IllegalAccessException e) {
+                    // Skip inaccessible fields
+                }
+            }
+        }
+        
+        return fields;
+    }
+    
+    /**
+     * Extracts record component names and their types.
+     */
+    private Map<String, Class<?>> extractRecordComponentTypes(Class<?> entityClass) {
+        Map<String, Class<?>> types = new HashMap<>();
+        
+        if (entityClass.isRecord()) {
+            for (RecordComponent component : entityClass.getRecordComponents()) {
+                Class<?> type = component.getType();
+                // For parameterized types like List<Long>, still use the raw type
+                types.put(component.getName(), type);
+            }
+        }
+        
+        return types;
+    }
+    
+    /**
+     * Checks if a field is public static final String.
+     */
+    private boolean isPublicStaticFinalString(Field field) {
+        int modifiers = field.getModifiers();
+        return Modifier.isPublic(modifiers)
+            && Modifier.isStatic(modifiers)
+            && Modifier.isFinal(modifiers)
+            && field.getType() == String.class;
+    }
+    
+    /**
+     * Converts a constant suffix like "USER_ID" to field name "userId".
+     */
+    private String constantSuffixToFieldName(String suffix) {
+        StringBuilder result = new StringBuilder();
+        boolean nextUpper = false;
+        
+        for (char c : suffix.toCharArray()) {
+            if (c == '_') {
+                nextUpper = true;
+            } else {
+                if (nextUpper) {
+                    result.append(Character.toUpperCase(c));
+                    nextUpper = false;
+                } else {
+                    result.append(Character.toLowerCase(c));
+                }
+            }
+        }
+        
+        return result.toString();
+    }
+    
+    /**
+     * Converts camelCase to snake_case.
+     */
+    private String toSnakeCase(String str) {
+        StringBuilder result = new StringBuilder();
+        
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if (Character.isUpperCase(c)) {
+                if (i > 0) {
+                    result.append('_');
+                }
+                result.append(Character.toLowerCase(c));
+            } else {
+                result.append(c);
+            }
+        }
+        
+        return result.toString();
+    }
+}
+
+
+--------------------------------------------------------------------------------
+7.4 PARSER & VALIDATION
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/parser/FilterParser.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.parser;
+
+import com.example.filter.exception.FilterParseException;
+import com.example.filter.model.FilterCriteria;
+import com.example.filter.model.FilterOperator;
+import com.example.filter.model.SortCriteria;
+import com.example.filter.model.SortDirection;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Parses filter and sort query strings into structured criteria.
+ * 
+ * <p>Filter syntax: {@code field:operator:value} or {@code field:operator:(v1,v2,v3)}</p>
+ * <p>Sort syntax: {@code field:direction} (direction defaults to asc)</p>
+ */
+public final class FilterParser {
+    
+    private static final Pattern IN_VALUES_PATTERN = Pattern.compile("^\\((.*)\\)$");
+    private static final Pattern FILTER_SPLIT_PATTERN = Pattern.compile(",(?![^()]*\\))");
+    
+    private static final FilterParser INSTANCE = new FilterParser();
+    
+    private FilterParser() {}
+    
+    public static FilterParser getInstance() {
+        return INSTANCE;
+    }
+    
+    /**
+     * Parses a filter string into criteria list.
+     */
+    public List<FilterCriteria> parseFilters(String filterString) {
+        if (filterString == null || filterString.isBlank()) {
+            return List.of();
+        }
+        
+        List<FilterCriteria> criteria = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        
+        for (String part : FILTER_SPLIT_PATTERN.split(filterString)) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) continue;
+            
+            try {
+                criteria.add(parseSingleFilter(trimmed));
+            } catch (IllegalArgumentException e) {
+                errors.add("Invalid filter '%s': %s".formatted(trimmed, e.getMessage()));
+            }
+        }
+        
+        if (!errors.isEmpty()) {
+            throw new FilterParseException("Filter parsing failed", errors);
+        }
+        return List.copyOf(criteria);
+    }
+    
+    /**
+     * Parses a sort string into criteria list.
+     */
+    public List<SortCriteria> parseSorts(String sortString) {
+        if (sortString == null || sortString.isBlank()) {
+            return List.of();
+        }
+        
+        List<SortCriteria> criteria = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        
+        for (String part : sortString.split(",")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) continue;
+            
+            try {
+                criteria.add(parseSingleSort(trimmed));
+            } catch (IllegalArgumentException e) {
+                errors.add("Invalid sort '%s': %s".formatted(trimmed, e.getMessage()));
+            }
+        }
+        
+        if (!errors.isEmpty()) {
+            throw new FilterParseException("Sort parsing failed", errors);
+        }
+        return List.copyOf(criteria);
+    }
+    
+    private FilterCriteria parseSingleFilter(String expression) {
+        String[] parts = expression.split(":", 3);
+        
+        if (parts.length < 2) {
+            throw new IllegalArgumentException("Expected format 'field:operator' or 'field:operator:value'");
+        }
+        
+        String field = parts[0].trim();
+        String opCode = parts[1].trim().toLowerCase();
+        
+        if (field.isEmpty()) {
+            throw new IllegalArgumentException("Field name cannot be empty");
+        }
+        
+        FilterOperator operator = FilterOperator.fromCode(opCode)
+            .orElseThrow(() -> new IllegalArgumentException("Unknown operator: " + opCode));
+        
+        // Null check operators (no value)
+        if (!operator.requiresValue()) {
+            return FilterCriteria.ofNullCheck(field, operator);
+        }
+        
+        // Value required
+        if (parts.length < 3 || parts[2].trim().isEmpty()) {
+            throw new IllegalArgumentException("Operator '%s' requires a value".formatted(opCode));
+        }
+        
+        String value = parts[2].trim();
+        
+        // IN/NOT IN operators (multi-value)
+        if (operator.isCollectionOperator()) {
+            return FilterCriteria.ofMulti(field, operator, parseInValues(value));
+        }
+        
+        // Single value
+        return FilterCriteria.of(field, operator, value);
+    }
+    
+    private List<String> parseInValues(String value) {
+        String inner = value;
+        Matcher matcher = IN_VALUES_PATTERN.matcher(value);
+        if (matcher.matches()) {
+            inner = matcher.group(1);
+        }
+        
+        if (inner.isEmpty()) {
+            throw new IllegalArgumentException("IN clause cannot be empty");
+        }
+        
+        return Arrays.stream(inner.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toList();
+    }
+    
+    private SortCriteria parseSingleSort(String expression) {
+        String[] parts = expression.split(":", 2);
+        String field = parts[0].trim();
+        
+        if (field.isEmpty()) {
+            throw new IllegalArgumentException("Field name cannot be empty");
+        }
+        
+        SortDirection direction = SortDirection.ASC;
+        if (parts.length > 1 && !parts[1].trim().isEmpty()) {
+            direction = SortDirection.fromCode(parts[1].trim())
+                .orElseThrow(() -> new IllegalArgumentException("Unknown direction: " + parts[1]));
+        }
+        
+        return new SortCriteria(field, direction);
+    }
+}
+
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/validation/FilterValidator.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.validation;
+
+import com.example.filter.exception.FilterValidationException;
+import com.example.filter.metadata.EntityMetadata;
+import com.example.filter.metadata.FieldMetadata;
+import com.example.filter.model.FilterCriteria;
+import com.example.filter.model.FilterOperator;
+import com.example.filter.model.SortCriteria;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Validates filter and sort criteria against entity metadata.
+ */
+public final class FilterValidator {
+    
+    private static final Set<FilterOperator> STRING_ONLY_OPERATORS = Set.of(
+        FilterOperator.STARTS_WITH,
+        FilterOperator.ENDS_WITH,
+        FilterOperator.CONTAINS
+    );
+    
+    private static final FilterValidator INSTANCE = new FilterValidator();
+    
+    private FilterValidator() {}
+    
+    public static FilterValidator getInstance() {
+        return INSTANCE;
+    }
+    
+    /**
+     * Validates filter criteria against entity metadata.
+     */
+    public void validateFilters(List<FilterCriteria> filters, EntityMetadata metadata) {
+        if (filters == null || filters.isEmpty()) return;
+        
+        List<String> errors = new ArrayList<>();
+        
+        for (FilterCriteria filter : filters) {
+            validateFilter(filter, metadata, errors);
+        }
+        
+        if (!errors.isEmpty()) {
+            throw new FilterValidationException("Filter validation failed", errors);
+        }
+    }
+    
+    /**
+     * Validates sort criteria against entity metadata.
+     */
+    public void validateSorts(List<SortCriteria> sorts, EntityMetadata metadata) {
+        if (sorts == null || sorts.isEmpty()) return;
+        
+        List<String> errors = new ArrayList<>();
+        
+        for (SortCriteria sort : sorts) {
+            var field = metadata.getField(sort.field());
+            if (field.isEmpty()) {
+                errors.add("Unknown sort field '%s'. Valid: %s"
+                    .formatted(sort.field(), metadata.getSortableFields()));
+            } else if (!field.get().sortable()) {
+                errors.add("Field '%s' is not sortable".formatted(sort.field()));
+            }
+        }
+        
+        if (!errors.isEmpty()) {
+            throw new FilterValidationException("Sort validation failed", errors);
+        }
+    }
+    
+    private void validateFilter(FilterCriteria filter, EntityMetadata metadata, List<String> errors) {
+        var fieldMeta = metadata.getField(filter.field());
+        
+        if (fieldMeta.isEmpty()) {
+            errors.add("Unknown filter field '%s'. Valid: %s"
+                .formatted(filter.field(), metadata.getFilterableFields()));
+            return;
+        }
+        
+        FieldMetadata fm = fieldMeta.get();
+        
+        if (!fm.filterable()) {
+            errors.add("Field '%s' is not filterable".formatted(filter.field()));
+            return;
+        }
+        
+        // String operators only work with String fields
+        if (STRING_ONLY_OPERATORS.contains(filter.operator()) && !fm.isString()) {
+            errors.add("Operator '%s' only works with String fields, but '%s' is %s"
+                .formatted(filter.operator().getCode(), filter.field(), fm.fieldType().getSimpleName()));
+        }
+        
+        // Validate numeric values
+        if (fm.isNumeric() && filter.operator().requiresValue()) {
+            if (filter.isMultiValue()) {
+                for (String v : filter.values()) {
+                    validateNumeric(filter.field(), v, errors);
+                }
+            } else if (filter.value() != null) {
+                validateNumeric(filter.field(), filter.value(), errors);
+            }
+        }
+    }
+    
+    private void validateNumeric(String field, String value, List<String> errors) {
+        try {
+            Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            errors.add("Field '%s' expects numeric value, got '%s'".formatted(field, value));
+        }
+    }
+}
+
+
+--------------------------------------------------------------------------------
+7.5 SERVICE
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/FilterService.java
+--------------------------------------------------------------------------------
+
+package com.example.filter;
+
+import com.example.filter.metadata.EntityMetadata;
+import com.example.filter.metadata.EntityMetadataRegistry;
+import com.example.filter.model.FilterCriteria;
+import com.example.filter.model.FilterRequest;
+import com.example.filter.model.SortCriteria;
+import com.example.filter.parser.FilterParser;
+import com.example.filter.validation.FilterValidator;
+
+import java.util.List;
+
+/**
+ * Main service for parsing and validating filter requests.
+ */
+public final class FilterService {
+    
+    private final EntityMetadataRegistry metadataRegistry;
+    private final FilterParser parser;
+    private final FilterValidator validator;
+    
+    public FilterService() {
+        this.metadataRegistry = EntityMetadataRegistry.getInstance();
+        this.parser = FilterParser.getInstance();
+        this.validator = FilterValidator.getInstance();
+    }
+    
+    /**
+     * Parses and validates a FilterRequest, returning an enriched request with parsed criteria.
+     *
+     * @param request the raw request with filter/sort strings
+     * @return enriched request with parsed and validated criteria
+     */
+    public FilterRequest parseAndValidate(FilterRequest request) {
+        // Parse
+        List<FilterCriteria> filters = parser.parseFilters(request.filterString());
+        List<SortCriteria> sorts = parser.parseSorts(request.sortString());
+        
+        // Validate against entity metadata if entity class is provided
+        if (request.entityClass() != null) {
+            EntityMetadata metadata = metadataRegistry.getOrRegister(request.entityClass());
+            validator.validateFilters(filters, metadata);
+            validator.validateSorts(sorts, metadata);
+        }
+        
+        return request.withParsedCriteria(filters, sorts);
+    }
+    
+    /**
+     * Convenience method: parse and validate from raw parameters.
+     */
+    public FilterRequest parseAndValidate(Class<?> entityClass, String filterString, 
+                                          String sortString, Integer limit, Integer offset) {
+        FilterRequest request = FilterRequest.of(limit, offset, filterString, sortString, entityClass);
+        return parseAndValidate(request);
+    }
+    
+    /**
+     * Gets metadata for an entity class.
+     */
+    public EntityMetadata getMetadata(Class<?> entityClass) {
+        return metadataRegistry.getOrRegister(entityClass);
+    }
+    
+    /**
+     * Parses filters without validation.
+     */
+    public List<FilterCriteria> parseFilters(String filterString) {
+        return parser.parseFilters(filterString);
+    }
+    
+    /**
+     * Parses sorts without validation.
+     */
+    public List<SortCriteria> parseSorts(String sortString) {
+        return parser.parseSorts(sortString);
+    }
+}
+
+
+--------------------------------------------------------------------------------
+7.6 SQL BUILDER
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+FILE: src/main/java/com/example/filter/jdbc/SqlQueryBuilder.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.jdbc;
+
+import com.example.filter.metadata.EntityMetadata;
+import com.example.filter.metadata.FieldMetadata;
+import com.example.filter.model.FilterCriteria;
+import com.example.filter.model.FilterOperator;
+import com.example.filter.model.FilterRequest;
+import com.example.filter.model.SortCriteria;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * Builds parameterized SQL queries from filter criteria.
+ * 
+ * <p>CRITICAL: This class generates SQL with named parameters only.
+ * Values are NEVER concatenated into SQL strings - they are always
+ * bound via parameters to prevent SQL injection.</p>
+ * 
+ * <p>This class is stateless and thread-safe.</p>
+ */
+public final class SqlQueryBuilder {
+    
+    private static final SqlQueryBuilder INSTANCE = new SqlQueryBuilder();
+    
+    private SqlQueryBuilder() {}
+    
+    public static SqlQueryBuilder getInstance() {
+        return INSTANCE;
+    }
+    
+    /**
+     * Result of building a SQL query - contains the SQL and parameters.
+     */
+    public record QueryResult(
+        String sql,
+        String countSql,
+        Map<String, Object> parameters
+    ) {}
+    
+    /**
+     * Builds a complete SELECT query with WHERE, ORDER BY, and pagination.
+     *
+     * @param baseSelect the base SELECT statement (e.g., "SELECT * FROM users u")
+     * @param request the filter request
+     * @param metadata the entity metadata
+     * @return the query result with SQL and parameters
+     */
+    public QueryResult buildQuery(String baseSelect, FilterRequest request, EntityMetadata metadata) {
+        Map<String, Object> parameters = new HashMap<>();
+        AtomicInteger paramCounter = new AtomicInteger(0);
+        
+        // Build WHERE clause
+        String whereClause = buildWhereClause(request.filters(), metadata, parameters, paramCounter);
+        
+        // Build ORDER BY clause
+        String orderByClause = buildOrderByClause(request.sorts(), metadata);
+        
+        // Build full query
+        StringBuilder sql = new StringBuilder(baseSelect);
+        
+        // Build count query by replacing SELECT ... FROM with SELECT COUNT(*) FROM
+        String countSqlStr = baseSelect.replaceFirst("(?i)SELECT\\s+.+?\\s+FROM", "SELECT COUNT(*) FROM");
+        StringBuilder countSql = new StringBuilder(countSqlStr);
+        
+        if (!whereClause.isEmpty()) {
+            sql.append(" WHERE ").append(whereClause);
+            countSql.append(" WHERE ").append(whereClause);
+        }
+        
+        if (!orderByClause.isEmpty()) {
+            sql.append(" ORDER BY ").append(orderByClause);
+        }
+        
+        // Add pagination
+        sql.append(" LIMIT :limit OFFSET :offset");
+        parameters.put("limit", request.limit());
+        parameters.put("offset", request.offset());
+        
+        return new QueryResult(sql.toString(), countSql.toString(), Map.copyOf(parameters));
+    }
+    
+    /**
+     * Builds the WHERE clause from filter criteria.
+     * 
+     * @return the WHERE clause (without "WHERE" keyword), or empty string if no filters
+     */
+    public String buildWhereClause(List<FilterCriteria> filters, 
+                                   EntityMetadata metadata,
+                                   Map<String, Object> parameters,
+                                   AtomicInteger paramCounter) {
+        if (filters == null || filters.isEmpty()) {
+            return "";
+        }
+        
+        List<String> conditions = new ArrayList<>();
+        
+        for (FilterCriteria criterion : filters) {
+            String condition = buildCondition(criterion, metadata, parameters, paramCounter);
+            if (condition != null && !condition.isEmpty()) {
+                conditions.add(condition);
+            }
+        }
+        
+        return String.join(" AND ", conditions);
+    }
+    
+    /**
+     * Builds a single SQL condition from a filter criterion.
+     */
+    private String buildCondition(FilterCriteria criterion,
+                                  EntityMetadata metadata,
+                                  Map<String, Object> parameters,
+                                  AtomicInteger paramCounter) {
+        String fieldName = criterion.field();
+        
+        // Get the database column name from metadata
+        String columnName = metadata.getColumnName(fieldName)
+            .orElse(toSnakeCase(fieldName));
+        
+        // Get field metadata for type information
+        FieldMetadata fieldMeta = metadata.getField(fieldName).orElse(null);
+        FilterOperator operator = criterion.operator();
+        
+        // Handle null-check operators (no value needed)
+        if (criterion.isNullCheck()) {
+            return "%s %s".formatted(columnName, operator.getSqlOperator());
+        }
+        
+        // Handle multi-value operators (IN, NOT IN)
+        if (criterion.isMultiValue()) {
+            List<Object> convertedValues = criterion.values().stream()
+                .map(v -> convertValue(v, fieldMeta))
+                .toList();
+            
+            String paramName = "p" + paramCounter.incrementAndGet();
+            parameters.put(paramName, convertedValues);
+            return "%s %s (:%s)".formatted(columnName, operator.getSqlOperator(), paramName);
+        }
+        
+        // Handle single-value operators
+        String paramName = "p" + paramCounter.incrementAndGet();
+        Object value = convertValue(criterion.value(), fieldMeta);
+        
+        // Transform value for LIKE operations
+        if (operator.requiresPatternValue()) {
+            value = operator.transformValueForLike(value.toString());
+        }
+        
+        parameters.put(paramName, value);
+        return "%s %s :%s".formatted(columnName, operator.getSqlOperator(), paramName);
+    }
+    
+    /**
+     * Builds the ORDER BY clause from sort criteria.
+     */
+    public String buildOrderByClause(List<SortCriteria> sorts, EntityMetadata metadata) {
+        if (sorts == null || sorts.isEmpty()) {
+            return "";
+        }
+        
+        List<String> orderParts = new ArrayList<>();
+        
+        for (SortCriteria sort : sorts) {
+            String columnName = metadata.getColumnName(sort.field())
+                .orElse(toSnakeCase(sort.field()));
+            
+            // Column name is from trusted metadata, direction is from enum
+            orderParts.add("%s %s".formatted(columnName, sort.direction().getSql()));
+        }
+        
+        return String.join(", ", orderParts);
+    }
+    
+    /**
+     * Converts a string value to the appropriate type based on field metadata.
+     */
+    private Object convertValue(String value, FieldMetadata fieldMeta) {
+        if (fieldMeta == null) {
+            return value;
+        }
+        
+        Class<?> type = fieldMeta.fieldType();
+        
+        try {
+            if (type == Long.class || type == long.class) {
+                return Long.parseLong(value);
+            } else if (type == Integer.class || type == int.class) {
+                return Integer.parseInt(value);
+            } else if (type == Double.class || type == double.class) {
+                return Double.parseDouble(value);
+            } else if (type == Float.class || type == float.class) {
+                return Float.parseFloat(value);
+            } else if (type == Boolean.class || type == boolean.class) {
+                return Boolean.parseBoolean(value);
+            }
+        } catch (NumberFormatException e) {
+            // Fall through to return as string
+        }
+        
+        return value;
+    }
+    
+    /**
+     * Converts camelCase to snake_case.
+     */
+    private String toSnakeCase(String str) {
+        StringBuilder result = new StringBuilder();
+        
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if (Character.isUpperCase(c)) {
+                if (i > 0) {
+                    result.append('_');
+                }
+                result.append(Character.toLowerCase(c));
+            } else {
+                result.append(c);
+            }
+        }
+        
+        return result.toString();
+    }
+}
+
+
+================================================================================
+8. USER DOMAIN
+================================================================================
+
+--------------------------------------------------------------------------------
+8.1 FILE: src/main/java/com/example/user/entity/User.java
+--------------------------------------------------------------------------------
+
+package com.example.user.entity;
+
+import java.util.List;
+
+/**
+ * User entity represented as a Java 21 Record.
+ * 
+ * <p>Contains public static final constants for field names that are used by
+ * the reflection-based metadata utility to validate filter/sort fields.</p>
+ * 
+ * <p>The constants follow a naming convention: FIELD_{FIELD_NAME} where the value
+ * matches the actual record component name and database column mapping.</p>
+ */
+public record User(
+    Long userId,
+    String username,
+    String firstName,
+    String lastName,
+    List<Long> roleIds
+) {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FILTERABLE/SORTABLE FIELD CONSTANTS
+    // These constants are discovered via reflection for filter validation
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    public static final String FIELD_USER_ID = "userId";
+    public static final String FIELD_USERNAME = "username";
+    public static final String FIELD_FIRST_NAME = "firstName";
+    public static final String FIELD_LAST_NAME = "lastName";
+    public static final String FIELD_ROLE_IDS = "roleIds";
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // DATABASE COLUMN MAPPINGS
+    // Maps Java field names to database column names
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    public static final String TABLE_NAME = "users";
+    
+    public static final String COL_USER_ID = "user_id";
+    public static final String COL_USERNAME = "username";
+    public static final String COL_FIRST_NAME = "first_name";
+    public static final String COL_LAST_NAME = "last_name";
+    
+    // Role IDs stored in separate junction table: user_roles(user_id, role_id)
+    public static final String TABLE_USER_ROLES = "user_roles";
+    public static final String COL_ROLE_ID = "role_id";
+    
+    /**
+     * Compact constructor for validation.
+     */
+    public User {
+        if (userId != null && userId < 0) {
+            throw new IllegalArgumentException("userId cannot be negative");
+        }
+        if (username == null || username.isBlank()) {
+            throw new IllegalArgumentException("username cannot be null or blank");
+        }
+        // Defensive copy for roleIds
+        roleIds = roleIds != null ? List.copyOf(roleIds) : List.of();
+    }
+    
+    /**
+     * Builder pattern for convenient User construction.
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+    
+    public static final class Builder {
+        private Long userId;
+        private String username;
+        private String firstName;
+        private String lastName;
+        private List<Long> roleIds;
+        
+        private Builder() {}
+        
+        public Builder userId(Long userId) {
+            this.userId = userId;
+            return this;
+        }
+        
+        public Builder username(String username) {
+            this.username = username;
+            return this;
+        }
+        
+        public Builder firstName(String firstName) {
+            this.firstName = firstName;
+            return this;
+        }
+        
+        public Builder lastName(String lastName) {
+            this.lastName = lastName;
+            return this;
+        }
+        
+        public Builder roleIds(List<Long> roleIds) {
+            this.roleIds = roleIds;
+            return this;
+        }
+        
+        public User build() {
+            return new User(userId, username, firstName, lastName, roleIds);
+        }
+    }
+}
+
+
+--------------------------------------------------------------------------------
+8.2 FILE: src/main/java/com/example/user/repository/UserRepository.java
+--------------------------------------------------------------------------------
+
+package com.example.user.repository;
+
+import com.example.filter.FilterService;
+import com.example.filter.jdbc.SqlQueryBuilder;
+import com.example.filter.metadata.EntityMetadata;
+import com.example.filter.model.FilterRequest;
+import com.example.filter.model.PageResponse;
+import com.example.user.entity.User;
+
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * Repository for User entity using Spring JdbcClient.
+ * 
+ * <p>Implements dynamic filtering with full SQL injection protection
+ * via parameterized queries. All user input is bound through named parameters,
+ * never concatenated into SQL strings.</p>
+ * 
+ * <p>This implementation uses:
+ * <ul>
+ *   <li>JdbcClient for modern, fluent JDBC access</li>
+ *   <li>Named parameters for all dynamic values</li>
+ *   <li>Entity metadata for column mapping</li>
+ * </ul>
+ */
+@Repository
+public class UserRepository {
+    
+    private static final String BASE_SELECT = """
+        SELECT u.user_id, u.username, u.first_name, u.last_name
+        FROM users u
+        """;
+    
+    private static final String SELECT_BY_ID = """
+        SELECT u.user_id, u.username, u.first_name, u.last_name
+        FROM users u
+        WHERE u.user_id = :userId
+        """;
+    
+    private static final String SELECT_ROLE_IDS = """
+        SELECT role_id FROM user_roles WHERE user_id = :userId
+        """;
+    
+    private final JdbcClient jdbcClient;
+    private final SqlQueryBuilder queryBuilder;
+    private final FilterService filterService;
+    private final EntityMetadata metadata;
+    
+    public UserRepository(JdbcClient jdbcClient) {
+        this.jdbcClient = jdbcClient;
+        this.queryBuilder = SqlQueryBuilder.getInstance();
+        this.filterService = new FilterService();
+        this.metadata = filterService.getMetadata(User.class);
+    }
+    
+    /**
+     * Finds users matching the filter criteria with pagination.
+     *
+     * @param request the filter request containing criteria, sorts, and pagination
+     * @return a page of users matching the criteria
+     */
+    public PageResponse<User> findAll(FilterRequest request) {
+        // Build the query with parameters
+        SqlQueryBuilder.QueryResult queryResult = queryBuilder.buildQuery(
+            BASE_SELECT.trim(), 
+            request, 
+            metadata
+        );
+        
+        // Execute count query for total elements
+        long totalElements = executeCountQuery(queryResult.countSql(), queryResult.parameters());
+        
+        // Execute main query
+        List<User> users = executeQuery(queryResult.sql(), queryResult.parameters());
+        
+        // Load role IDs for each user
+        users = users.stream()
+            .map(this::loadRoleIds)
+            .toList();
+        
+        // Build response with applied filter/sort info
+        List<String> appliedFilters = request.filters().stream()
+            .map(Object::toString)
+            .toList();
+        List<String> appliedSorts = request.sorts().stream()
+            .map(Object::toString)
+            .toList();
+        
+        return PageResponse.<User>builder()
+            .content(users)
+            .page(request.page())
+            .size(request.limit())
+            .totalElements(totalElements)
+            .appliedFilters(appliedFilters)
+            .appliedSorts(appliedSorts)
+            .build();
+    }
+    
+    /**
+     * Finds a user by ID.
+     */
+    public Optional<User> findById(Long userId) {
+        List<User> results = jdbcClient.sql(SELECT_BY_ID)
+            .param("userId", userId)
+            .query(this::mapRow)
+            .list();
+        
+        if (results.isEmpty()) {
+            return Optional.empty();
+        }
+        
+        return Optional.of(loadRoleIds(results.getFirst()));
+    }
+    
+    /**
+     * Executes the main query and returns the list of users.
+     */
+    private List<User> executeQuery(String sql, Map<String, Object> parameters) {
+        var spec = jdbcClient.sql(sql);
+        
+        // Bind all parameters safely
+        for (Map.Entry<String, Object> entry : parameters.entrySet()) {
+            spec = spec.param(entry.getKey(), entry.getValue());
+        }
+        
+        return spec.query(this::mapRow).list();
+    }
+    
+    /**
+     * Executes the count query and returns the total count.
+     */
+    private long executeCountQuery(String sql, Map<String, Object> parameters) {
+        var spec = jdbcClient.sql(sql);
+        
+        // Bind all parameters safely (except pagination params)
+        for (Map.Entry<String, Object> entry : parameters.entrySet()) {
+            if (!"limit".equals(entry.getKey()) && !"offset".equals(entry.getKey())) {
+                spec = spec.param(entry.getKey(), entry.getValue());
+            }
+        }
+        
+        return spec.query(Long.class).single();
+    }
+    
+    /**
+     * Loads role IDs for a user from the junction table.
+     */
+    private User loadRoleIds(User user) {
+        List<Long> roleIds = jdbcClient.sql(SELECT_ROLE_IDS)
+            .param("userId", user.userId())
+            .query((rs, rowNum) -> rs.getLong("role_id"))
+            .list();
+        
+        return User.builder()
+            .userId(user.userId())
+            .username(user.username())
+            .firstName(user.firstName())
+            .lastName(user.lastName())
+            .roleIds(roleIds)
+            .build();
+    }
+    
+    /**
+     * Maps a ResultSet row to a User (without role IDs).
+     */
+    private User mapRow(ResultSet rs, int rowNum) throws SQLException {
+        return User.builder()
+            .userId(rs.getLong("user_id"))
+            .username(rs.getString("username"))
+            .firstName(rs.getString("first_name"))
+            .lastName(rs.getString("last_name"))
+            .roleIds(List.of()) // Will be loaded separately
+            .build();
+    }
+}
+
+
+--------------------------------------------------------------------------------
+8.3 FILE: src/main/java/com/example/user/service/UserService.java
+--------------------------------------------------------------------------------
+
+package com.example.user.service;
+
+import com.example.filter.FilterService;
+import com.example.filter.model.FilterRequest;
+import com.example.filter.model.PageResponse;
+import com.example.user.entity.User;
+import com.example.user.repository.UserRepository;
+
+import org.springframework.stereotype.Service;
+
+import java.util.Optional;
+
+/**
+ * Service layer for User operations.
+ * 
+ * <p>Bridges the Controller and Repository layers, handling:
+ * <ul>
+ *   <li>Filter/sort parsing and validation</li>
+ *   <li>Business logic (if any)</li>
+ *   <li>Transaction management (if needed)</li>
+ * </ul>
+ */
+@Service
+public class UserService {
+    
+    private final UserRepository userRepository;
+    private final FilterService filterService;
+    
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+        this.filterService = new FilterService();
+    }
+    
+    /**
+     * Retrieves users matching the given filter and sort criteria.
+     *
+     * @param filterString the filter query string (e.g., "firstName:sw:Jo")
+     * @param sortString the sort query string (e.g., "lastName:asc")
+     * @param limit maximum records to return
+     * @param offset number of records to skip
+     * @return a page of users
+     */
+    public PageResponse<User> findUsers(String filterString, 
+                                        String sortString,
+                                        Integer limit,
+                                        Integer offset) {
+        // Create and parse/validate the filter request
+        FilterRequest request = filterService.parseAndValidate(
+            User.class,
+            filterString,
+            sortString,
+            limit,
+            offset
+        );
+        
+        // Delegate to repository
+        return userRepository.findAll(request);
+    }
+    
+    /**
+     * Retrieves a user by their ID.
+     *
+     * @param userId the user ID
+     * @return the user if found
+     */
+    public Optional<User> findById(Long userId) {
+        if (userId == null || userId < 0) {
+            return Optional.empty();
+        }
+        return userRepository.findById(userId);
+    }
+    
+    /**
+     * Gets the filterable fields for User entity.
+     * Useful for API documentation or discovery endpoints.
+     */
+    public java.util.Set<String> getFilterableFields() {
+        return filterService.getMetadata(User.class).getFilterableFields();
+    }
+    
+    /**
+     * Gets the sortable fields for User entity.
+     */
+    public java.util.Set<String> getSortableFields() {
+        return filterService.getMetadata(User.class).getSortableFields();
+    }
+}
+
+
+--------------------------------------------------------------------------------
+8.4 FILE: src/main/java/com/example/user/api/UserController.java
+--------------------------------------------------------------------------------
+
+package com.example.user.api;
+
+import com.example.filter.exception.FilterParseException;
+import com.example.filter.exception.FilterValidationException;
+import com.example.filter.model.PageResponse;
+import com.example.user.entity.User;
+import com.example.user.service.UserService;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * REST Controller for User API.
+ * 
+ * <p>Implements the endpoints defined in UserAPI.yaml with dynamic
+ * filtering and sorting capabilities.</p>
+ * 
+ * <p>Example requests:
+ * <ul>
+ *   <li>GET /api/v1/users?filter=firstName:sw:Jo&sort=lastName:asc</li>
+ *   <li>GET /api/v1/users?filter=roleIds:in:(1,2,3)&page=0&size=10</li>
+ *   <li>GET /api/v1/users/123</li>
+ * </ul>
+ */
+@RestController
+@RequestMapping("/api/v1/users")
+public class UserController {
+    
+    private final UserService userService;
+    
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+    
+    /**
+     * GET /api/v1/users
+     * 
+     * Retrieves users with optional filtering, sorting, and pagination.
+     *
+     * @param filter filter string (e.g., "firstName:sw:Jo,lastName:eq:Doe")
+     * @param sort sort string (e.g., "lastName:asc,firstName:desc")
+     * @param limit maximum records to return (default 20, max 100)
+     * @param offset number of records to skip (default 0)
+     * @return paginated list of users
+     */
+    @GetMapping
+    public ResponseEntity<PageResponse<User>> getUsers(
+            @RequestParam(required = false) String filter,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false, defaultValue = "20") Integer limit,
+            @RequestParam(required = false, defaultValue = "0") Integer offset) {
+        
+        PageResponse<User> response = userService.findUsers(filter, sort, limit, offset);
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * GET /api/v1/users/{userId}
+     * 
+     * Retrieves a single user by ID.
+     *
+     * @param userId the user ID
+     * @return the user if found, 404 otherwise
+     */
+    @GetMapping("/{userId}")
+    public ResponseEntity<User> getUserById(@PathVariable Long userId) {
+        return userService.findById(userId)
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+    }
+    
+    /**
+     * GET /api/v1/users/metadata/fields
+     * 
+     * Returns the available filterable and sortable fields.
+     * Useful for client-side filter builders.
+     */
+    @GetMapping("/metadata/fields")
+    public ResponseEntity<Map<String, Set<String>>> getFieldMetadata() {
+        return ResponseEntity.ok(Map.of(
+            "filterableFields", userService.getFilterableFields(),
+            "sortableFields", userService.getSortableFields()
+        ));
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // EXCEPTION HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Handles filter parsing errors.
+     */
+    @ExceptionHandler(FilterParseException.class)
+    public ResponseEntity<ErrorResponse> handleFilterParseException(FilterParseException ex) {
+        ErrorResponse error = new ErrorResponse(
+            Instant.now().toString(),
+            HttpStatus.BAD_REQUEST.value(),
+            "Bad Request",
+            ex.getMessage(),
+            "/api/v1/users",
+            ex.getErrors()
+        );
+        return ResponseEntity.badRequest().body(error);
+    }
+    
+    /**
+     * Handles filter validation errors.
+     */
+    @ExceptionHandler(FilterValidationException.class)
+    public ResponseEntity<ErrorResponse> handleFilterValidationException(FilterValidationException ex) {
+        ErrorResponse error = new ErrorResponse(
+            Instant.now().toString(),
+            HttpStatus.BAD_REQUEST.value(),
+            "Bad Request",
+            ex.getMessage(),
+            "/api/v1/users",
+            ex.getErrors()
+        );
+        return ResponseEntity.badRequest().body(error);
+    }
+    
+    /**
+     * Error response DTO matching OpenAPI spec.
+     */
+    public record ErrorResponse(
+        String timestamp,
+        int status,
+        String error,
+        String message,
+        String path,
+        java.util.List<String> details
+    ) {}
+}
+
+
+================================================================================
+9. UNIT TESTS
+================================================================================
+
+--------------------------------------------------------------------------------
+9.1 FILE: src/test/java/com/example/filter/parser/FilterParserTest.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.parser;
+
+import com.example.filter.exception.FilterParseException;
+import com.example.filter.model.FilterCriteria;
+import com.example.filter.model.FilterOperator;
+import com.example.filter.model.SortCriteria;
+import com.example.filter.model.SortDirection;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Unit tests for FilterParser.
+ */
+class FilterParserTest {
+    
+    private FilterParser parser;
+    
+    @BeforeEach
+    void setUp() {
+        parser = FilterParser.getInstance();
+    }
+    
+    @Nested
+    @DisplayName("Filter Parsing Tests")
+    class FilterParsingTests {
+        
+        @Test
+        @DisplayName("Should parse simple equals filter")
+        void shouldParseSimpleEqualsFilter() {
+            List<FilterCriteria> filters = parser.parseFilters("firstName:eq:John");
+            
+            assertEquals(1, filters.size());
+            FilterCriteria filter = filters.getFirst();
+            assertEquals("firstName", filter.field());
+            assertEquals(FilterOperator.EQ, filter.operator());
+            assertEquals("John", filter.value());
+            assertFalse(filter.isMultiValue());
+            assertFalse(filter.isNullCheck());
+        }
+        
+        @Test
+        @DisplayName("Should parse starts-with filter")
+        void shouldParseStartsWithFilter() {
+            List<FilterCriteria> filters = parser.parseFilters("firstName:sw:Jo");
+            
+            assertEquals(1, filters.size());
+            FilterCriteria filter = filters.getFirst();
+            assertEquals(FilterOperator.STARTS_WITH, filter.operator());
+            assertEquals("Jo", filter.value());
+        }
+        
+        @Test
+        @DisplayName("Should parse IN clause filter")
+        void shouldParseInClauseFilter() {
+            List<FilterCriteria> filters = parser.parseFilters("roleIds:in:(1,2,3)");
+            
+            assertEquals(1, filters.size());
+            FilterCriteria filter = filters.getFirst();
+            assertEquals("roleIds", filter.field());
+            assertEquals(FilterOperator.IN, filter.operator());
+            assertEquals(List.of("1", "2", "3"), filter.values());
+            assertTrue(filter.isMultiValue());
+        }
+        
+        @Test
+        @DisplayName("Should parse IS NULL filter")
+        void shouldParseIsNullFilter() {
+            List<FilterCriteria> filters = parser.parseFilters("lastName:null");
+            
+            assertEquals(1, filters.size());
+            FilterCriteria filter = filters.getFirst();
+            assertEquals("lastName", filter.field());
+            assertEquals(FilterOperator.IS_NULL, filter.operator());
+            assertTrue(filter.isNullCheck());
+        }
+        
+        @Test
+        @DisplayName("Should parse multiple filters")
+        void shouldParseMultipleFilters() {
+            List<FilterCriteria> filters = parser.parseFilters(
+                "firstName:sw:Jo,lastName:eq:Doe,roleIds:in:(1,2)"
+            );
+            
+            assertEquals(3, filters.size());
+        }
+        
+        @Test
+        @DisplayName("Should return empty list for null or blank input")
+        void shouldReturnEmptyListForNullInput() {
+            assertTrue(parser.parseFilters(null).isEmpty());
+            assertTrue(parser.parseFilters("").isEmpty());
+            assertTrue(parser.parseFilters("   ").isEmpty());
+        }
+        
+        @Test
+        @DisplayName("Should throw exception for invalid operator")
+        void shouldThrowForInvalidOperator() {
+            FilterParseException ex = assertThrows(
+                FilterParseException.class,
+                () -> parser.parseFilters("firstName:invalid:John")
+            );
+            assertTrue(ex.getMessage().contains("parsing failed"));
+        }
+        
+        @Test
+        @DisplayName("Should throw exception for missing value")
+        void shouldThrowForMissingValue() {
+            FilterParseException ex = assertThrows(
+                FilterParseException.class,
+                () -> parser.parseFilters("firstName:eq:")
+            );
+            assertTrue(ex.getMessage().contains("parsing failed"));
+        }
+    }
+    
+    @Nested
+    @DisplayName("Sort Parsing Tests")
+    class SortParsingTests {
+        
+        @Test
+        @DisplayName("Should parse simple ascending sort")
+        void shouldParseAscendingSort() {
+            List<SortCriteria> sorts = parser.parseSorts("lastName:asc");
+            
+            assertEquals(1, sorts.size());
+            assertEquals("lastName", sorts.getFirst().field());
+            assertEquals(SortDirection.ASC, sorts.getFirst().direction());
+        }
+        
+        @Test
+        @DisplayName("Should parse descending sort")
+        void shouldParseDescendingSort() {
+            List<SortCriteria> sorts = parser.parseSorts("firstName:desc");
+            
+            assertEquals(1, sorts.size());
+            assertEquals(SortDirection.DESC, sorts.getFirst().direction());
+        }
+        
+        @Test
+        @DisplayName("Should default to ASC when direction omitted")
+        void shouldDefaultToAscending() {
+            List<SortCriteria> sorts = parser.parseSorts("lastName");
+            
+            assertEquals(1, sorts.size());
+            assertEquals(SortDirection.ASC, sorts.getFirst().direction());
+        }
+        
+        @Test
+        @DisplayName("Should parse multiple sorts")
+        void shouldParseMultipleSorts() {
+            List<SortCriteria> sorts = parser.parseSorts("lastName:asc,firstName:desc");
+            
+            assertEquals(2, sorts.size());
+            assertEquals("lastName", sorts.get(0).field());
+            assertEquals(SortDirection.ASC, sorts.get(0).direction());
+            assertEquals("firstName", sorts.get(1).field());
+            assertEquals(SortDirection.DESC, sorts.get(1).direction());
+        }
+        
+        @Test
+        @DisplayName("Should return empty list for null or blank input")
+        void shouldReturnEmptyListForNullInput() {
+            assertTrue(parser.parseSorts(null).isEmpty());
+            assertTrue(parser.parseSorts("").isEmpty());
+        }
+    }
+}
+
+
+--------------------------------------------------------------------------------
+9.2 FILE: src/test/java/com/example/filter/metadata/EntityMetadataRegistryTest.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.metadata;
+
+import com.example.user.entity.User;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Unit tests for EntityMetadataRegistry.
+ */
+class EntityMetadataRegistryTest {
+    
+    private EntityMetadataRegistry registry;
+    
+    @BeforeEach
+    void setUp() {
+        registry = EntityMetadataRegistry.getInstance();
+        registry.clear(); // Clear cache before each test
+    }
+    
+    @Test
+    @DisplayName("Should extract metadata from User record")
+    void shouldExtractUserMetadata() {
+        EntityMetadata metadata = registry.register(User.class);
+        
+        assertNotNull(metadata);
+        assertEquals(User.class, metadata.entityClass());
+        assertEquals("users", metadata.tableName());
+    }
+    
+    @Test
+    @DisplayName("Should discover all FIELD_* constants")
+    void shouldDiscoverFieldConstants() {
+        EntityMetadata metadata = registry.register(User.class);
+        
+        Set<String> fields = metadata.getFilterableFields();
+        
+        assertTrue(fields.contains("userId"));
+        assertTrue(fields.contains("username"));
+        assertTrue(fields.contains("firstName"));
+        assertTrue(fields.contains("lastName"));
+        assertTrue(fields.contains("roleIds"));
+    }
+    
+    @Test
+    @DisplayName("Should map field names to column names")
+    void shouldMapColumnNames() {
+        EntityMetadata metadata = registry.register(User.class);
+        
+        assertEquals("user_id", metadata.getColumnName("userId").orElse(null));
+        assertEquals("username", metadata.getColumnName("username").orElse(null));
+        assertEquals("first_name", metadata.getColumnName("firstName").orElse(null));
+        assertEquals("last_name", metadata.getColumnName("lastName").orElse(null));
+    }
+    
+    @Test
+    @DisplayName("Should extract correct field types")
+    void shouldExtractFieldTypes() {
+        EntityMetadata metadata = registry.register(User.class);
+        
+        FieldMetadata userId = metadata.getField("userId").orElseThrow();
+        FieldMetadata username = metadata.getField("username").orElseThrow();
+        FieldMetadata roleIds = metadata.getField("roleIds").orElseThrow();
+        
+        assertEquals(Long.class, userId.fieldType());
+        assertEquals(String.class, username.fieldType());
+        assertEquals(List.class, roleIds.fieldType());
+    }
+    
+    @Test
+    @DisplayName("Should cache metadata for subsequent calls")
+    void shouldCacheMetadata() {
+        EntityMetadata first = registry.register(User.class);
+        EntityMetadata second = registry.register(User.class);
+        
+        assertSame(first, second);
+    }
+    
+    @Test
+    @DisplayName("Should validate filterable fields")
+    void shouldValidateFilterableFields() {
+        EntityMetadata metadata = registry.register(User.class);
+        
+        assertTrue(metadata.isFilterableField("firstName"));
+        assertFalse(metadata.isFilterableField("nonExistentField"));
+    }
+    
+    @Test
+    @DisplayName("Should validate sortable fields")
+    void shouldValidateSortableFields() {
+        EntityMetadata metadata = registry.register(User.class);
+        
+        assertTrue(metadata.isSortableField("lastName"));
+        assertFalse(metadata.isSortableField("nonExistentField"));
+    }
+}
+
+
+--------------------------------------------------------------------------------
+9.3 FILE: src/test/java/com/example/filter/jdbc/SqlQueryBuilderTest.java
+--------------------------------------------------------------------------------
+
+package com.example.filter.jdbc;
+
+import com.example.filter.metadata.EntityMetadata;
+import com.example.filter.metadata.EntityMetadataRegistry;
+import com.example.filter.model.FilterCriteria;
+import com.example.filter.model.FilterOperator;
+import com.example.filter.model.FilterRequest;
+import com.example.filter.model.SortCriteria;
+import com.example.user.entity.User;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Unit tests for SqlQueryBuilder.
+ */
+class SqlQueryBuilderTest {
+    
+    private SqlQueryBuilder builder;
+    private EntityMetadata metadata;
+    
+    @BeforeEach
+    void setUp() {
+        builder = SqlQueryBuilder.getInstance();
+        metadata = EntityMetadataRegistry.getInstance().register(User.class);
+    }
+    
+    @Nested
+    @DisplayName("WHERE Clause Building")
+    class WhereClauseTests {
+        
+        @Test
+        @DisplayName("Should build equals condition with parameter")
+        void shouldBuildEqualsCondition() {
+            var filter = FilterCriteria.of("firstName", FilterOperator.EQ, "John");
+            Map<String, Object> params = new HashMap<>();
+            
+            String where = builder.buildWhereClause(
+                List.of(filter), 
+                metadata, 
+                params, 
+                new AtomicInteger(0)
+            );
+            
+            assertEquals("first_name = :p1", where);
+            assertEquals("John", params.get("p1"));
+        }
+        
+        @Test
+        @DisplayName("Should build LIKE condition for starts-with")
+        void shouldBuildLikeCondition() {
+            var filter = FilterCriteria.of("firstName", FilterOperator.STARTS_WITH, "Jo");
+            Map<String, Object> params = new HashMap<>();
+            
+            String where = builder.buildWhereClause(
+                List.of(filter), 
+                metadata, 
+                params, 
+                new AtomicInteger(0)
+            );
+            
+            assertEquals("first_name LIKE :p1", where);
+            assertEquals("Jo%", params.get("p1")); // Value transformed for LIKE
+        }
+        
+        @Test
+        @DisplayName("Should build IN clause with list parameter")
+        void shouldBuildInClause() {
+            var filter = FilterCriteria.ofMulti("roleIds", FilterOperator.IN, List.of("1", "2", "3"));
+            Map<String, Object> params = new HashMap<>();
+            
+            String where = builder.buildWhereClause(
+                List.of(filter), 
+                metadata, 
+                params, 
+                new AtomicInteger(0)
+            );
+            
+            assertEquals("role_ids IN (:p1)", where);
+            assertInstanceOf(List.class, params.get("p1"));
+        }
+        
+        @Test
+        @DisplayName("Should build IS NULL condition without parameter")
+        void shouldBuildIsNullCondition() {
+            var filter = FilterCriteria.ofNullCheck("lastName", FilterOperator.IS_NULL);
+            Map<String, Object> params = new HashMap<>();
+            
+            String where = builder.buildWhereClause(
+                List.of(filter), 
+                metadata, 
+                params, 
+                new AtomicInteger(0)
+            );
+            
+            assertEquals("last_name IS NULL", where);
+            assertTrue(params.isEmpty()); // No parameters for NULL check
+        }
+        
+        @Test
+        @DisplayName("Should combine multiple filters with AND")
+        void shouldCombineFiltersWithAnd() {
+            var filter1 = FilterCriteria.of("firstName", FilterOperator.EQ, "John");
+            var filter2 = FilterCriteria.of("lastName", FilterOperator.EQ, "Doe");
+            Map<String, Object> params = new HashMap<>();
+            
+            String where = builder.buildWhereClause(
+                List.of(filter1, filter2), 
+                metadata, 
+                params, 
+                new AtomicInteger(0)
+            );
+            
+            assertEquals("first_name = :p1 AND last_name = :p2", where);
+            assertEquals("John", params.get("p1"));
+            assertEquals("Doe", params.get("p2"));
+        }
+        
+        @Test
+        @DisplayName("Should return empty string for empty filters")
+        void shouldReturnEmptyForEmptyFilters() {
+            String where = builder.buildWhereClause(
+                List.of(), 
+                metadata, 
+                new HashMap<>(), 
+                new AtomicInteger(0)
+            );
+            
+            assertEquals("", where);
+        }
+    }
+    
+    @Nested
+    @DisplayName("ORDER BY Clause Building")
+    class OrderByClauseTests {
+        
+        @Test
+        @DisplayName("Should build single sort clause")
+        void shouldBuildSingleSort() {
+            String orderBy = builder.buildOrderByClause(
+                List.of(SortCriteria.asc("lastName")),
+                metadata
+            );
+            
+            assertEquals("last_name ASC", orderBy);
+        }
+        
+        @Test
+        @DisplayName("Should build multiple sort clauses")
+        void shouldBuildMultipleSorts() {
+            String orderBy = builder.buildOrderByClause(
+                List.of(
+                    SortCriteria.asc("lastName"),
+                    SortCriteria.desc("firstName")
+                ),
+                metadata
+            );
+            
+            assertEquals("last_name ASC, first_name DESC", orderBy);
+        }
+    }
+    
+    @Nested
+    @DisplayName("Full Query Building")
+    class FullQueryTests {
+        
+        @Test
+        @DisplayName("Should build complete query with all parts")
+        void shouldBuildCompleteQuery() {
+            FilterRequest request = new FilterRequest(
+                20, 0, null, null,
+                List.of(FilterCriteria.of("firstName", FilterOperator.STARTS_WITH, "Jo")),
+                List.of(SortCriteria.asc("lastName")),
+                null, User.class, Map.of()
+            );
+            
+            SqlQueryBuilder.QueryResult result = builder.buildQuery(
+                "SELECT * FROM users u",
+                request,
+                metadata
+            );
+            
+            assertTrue(result.sql().contains("WHERE first_name LIKE :p1"));
+            assertTrue(result.sql().contains("ORDER BY last_name ASC"));
+            assertTrue(result.sql().contains("LIMIT :limit OFFSET :offset"));
+            
+            assertEquals("Jo%", result.parameters().get("p1"));
+            assertEquals(20, result.parameters().get("limit"));
+            assertEquals(0, result.parameters().get("offset"));
+        }
+        
+        @Test
+        @DisplayName("Should prevent SQL injection via parameterized queries")
+        void shouldPreventSqlInjection() {
+            // Attempt SQL injection through filter value
+            var maliciousFilter = FilterCriteria.of("firstName", FilterOperator.EQ, "'; DROP TABLE users; --");
+            
+            FilterRequest request = new FilterRequest(
+                20, 0, null, null,
+                List.of(maliciousFilter),
+                List.of(),
+                null, User.class, Map.of()
+            );
+            
+            SqlQueryBuilder.QueryResult result = builder.buildQuery(
+                "SELECT * FROM users u",
+                request,
+                metadata
+            );
+            
+            // SQL should NOT contain the injection - value should be parameterized
+            assertFalse(result.sql().contains("DROP TABLE"));
+            // Value should be safely stored in parameters
+            assertEquals("'; DROP TABLE users; --", result.parameters().get("p1"));
+        }
+    }
+}
+
+
+================================================================================
+10. API USAGE & CURL EXAMPLES
+================================================================================
+
+SAMPLE DATA (5 users pre-populated):
+| ID | Username  | First Name | Last Name | Roles                    |
+|----|-----------|------------|-----------|--------------------------|
+| 1  | jdoe      | John       | Doe       | ADMIN, USER              |
+| 2  | jsmith    | Jane       | Smith     | USER                     |
+| 3  | bwilson   | Bob        | Wilson    | USER, MODERATOR          |
+| 4  | ajohnson  | Alice      | Johnson   | ADMIN, USER, MODERATOR   |
+| 5  | mgarcia   | Maria      | Garcia    | USER                     |
+
+
+BASIC QUERIES:
+--------------
+
+# Get all users
+curl http://localhost:8080/api/v1/users
+
+# Get user by ID
+curl http://localhost:8080/api/v1/users/1
+
+# Get available fields
+curl http://localhost:8080/api/v1/users/metadata/fields
+
+
+FILTERING EXAMPLES:
+-------------------
+
+# Equals (eq)
+curl "http://localhost:8080/api/v1/users?filter=lastName:eq:Doe"
+curl "http://localhost:8080/api/v1/users?filter=username:eq:jsmith"
+
+# Not Equals (ne)
+curl "http://localhost:8080/api/v1/users?filter=lastName:ne:Doe"
+
+# Starts With (sw)
+curl "http://localhost:8080/api/v1/users?filter=firstName:sw:J"
+curl "http://localhost:8080/api/v1/users?filter=lastName:sw:Do"
+
+# Ends With (ew)
+curl "http://localhost:8080/api/v1/users?filter=lastName:ew:son"
+
+# Contains
+curl "http://localhost:8080/api/v1/users?filter=firstName:contains:oh"
+curl "http://localhost:8080/api/v1/users?filter=username:contains:smith"
+
+# Greater Than / Less Than (gt, gte, lt, lte)
+curl "http://localhost:8080/api/v1/users?filter=userId:gt:2"
+curl "http://localhost:8080/api/v1/users?filter=userId:lte:3"
+
+# In List (in)
+curl "http://localhost:8080/api/v1/users?filter=userId:in:(1,3,5)"
+curl "http://localhost:8080/api/v1/users?filter=username:in:(jdoe,jsmith,mgarcia)"
+
+# Not In List (nin)
+curl "http://localhost:8080/api/v1/users?filter=userId:nin:(1,2)"
+
+# Is Null / Is Not Null
+curl "http://localhost:8080/api/v1/users?filter=lastName:notnull"
+curl "http://localhost:8080/api/v1/users?filter=firstName:null"
+
+
+MULTIPLE FILTERS (combined with AND):
+-------------------------------------
+
+curl "http://localhost:8080/api/v1/users?filter=firstName:sw:J,lastName:notnull"
+curl "http://localhost:8080/api/v1/users?filter=userId:gt:1,userId:lt:5"
+curl "http://localhost:8080/api/v1/users?filter=firstName:sw:J,lastName:eq:Smith"
+
+
+SORTING EXAMPLES:
+-----------------
+
+# Single field sort
+curl "http://localhost:8080/api/v1/users?sort=lastName:asc"
+curl "http://localhost:8080/api/v1/users?sort=firstName:desc"
+curl "http://localhost:8080/api/v1/users?sort=userId:desc"
+
+# Multiple field sort
+curl "http://localhost:8080/api/v1/users?sort=lastName:asc,firstName:desc"
+curl "http://localhost:8080/api/v1/users?sort=lastName:asc,userId:desc"
+
+
+PAGINATION EXAMPLES:
+--------------------
+
+# First 2 users
+curl "http://localhost:8080/api/v1/users?limit=2&offset=0"
+
+# Next 2 users (page 2)
+curl "http://localhost:8080/api/v1/users?limit=2&offset=2"
+
+# Last user (page 3)
+curl "http://localhost:8080/api/v1/users?limit=2&offset=4"
+
+# Pagination with sorting
+curl "http://localhost:8080/api/v1/users?limit=3&offset=0&sort=lastName:asc"
+
+
+COMBINED EXAMPLES:
+------------------
+
+# Filter + Sort
+curl "http://localhost:8080/api/v1/users?filter=firstName:sw:J&sort=lastName:asc"
+
+# Filter + Sort + Pagination
+curl "http://localhost:8080/api/v1/users?filter=userId:gt:1&sort=firstName:asc&limit=2&offset=0"
+
+# Complex Query
+curl "http://localhost:8080/api/v1/users?filter=firstName:sw:J,lastName:notnull&sort=lastName:asc,firstName:desc&limit=10&offset=0"
+
+
+ERROR HANDLING EXAMPLES:
+------------------------
+
+# Invalid filter field
+curl "http://localhost:8080/api/v1/users?filter=invalidField:eq:test"
+# Returns 400 with error message listing valid fields
+
+# Invalid operator
+curl "http://localhost:8080/api/v1/users?filter=firstName:invalid:test"
+# Returns 400 with error message about unknown operator
+
+# Invalid sort field
+curl "http://localhost:8080/api/v1/users?sort=invalidField:asc"
+# Returns 400 with error message listing valid fields
+
+# User not found
+curl http://localhost:8080/api/v1/users/999
+# Returns 404
+
+
+PRETTY PRINT JSON:
+------------------
+
+curl -s "http://localhost:8080/api/v1/users?filter=firstName:sw:J" | python3 -m json.tool
+
+# Or with jq if installed:
+curl -s "http://localhost:8080/api/v1/users?filter=firstName:sw:J" | jq
+
+
+================================================================================
+11. EXTENDING THE SYSTEM
+================================================================================
+
+Adding a New Entity:
+--------------------
+
+1. Create the Entity Record:
+
+public record Product(Long productId, String name, BigDecimal price) {
+    public static final String FIELD_PRODUCT_ID = "productId";
+    public static final String FIELD_NAME = "name";
+    public static final String FIELD_PRICE = "price";
+    
+    public static final String TABLE_NAME = "products";
+    public static final String COL_PRODUCT_ID = "product_id";
+}
+
+2. Create Repository:
+
+@Repository
+public class ProductRepository {
+    private final JdbcClient jdbcClient;
+    private final SqlQueryBuilder queryBuilder;
+    private final EntityMetadata metadata;
+    
+    public ProductRepository(JdbcClient jdbcClient) {
+        this.jdbcClient = jdbcClient;
+        this.queryBuilder = SqlQueryBuilder.getInstance();
+        this.metadata = EntityMetadataRegistry.getInstance().register(Product.class);
+    }
+    
+    public PageResponse<Product> findAll(FilterRequest request) {
+        // Use SqlQueryBuilder to build query
+        // Execute with JdbcClient
+    }
+}
+
+3. Create Service and Controller following the same pattern as UserService 
+   and UserController.
+
+
+Adding Custom Operators:
+------------------------
+
+1. Add to FilterOperator enum
+2. Update SqlQueryBuilder.buildCondition() if needed
+3. Update FilterValidator if type restrictions apply
+
+
+================================================================================
+END OF COMPLETE PROJECT FILE
+================================================================================
