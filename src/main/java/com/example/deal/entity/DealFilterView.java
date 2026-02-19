@@ -137,13 +137,22 @@ public record DealFilterView(
         """;
     
     /**
-     * Query to get distinct deal IDs for pagination.
+     * Base query to get deal IDs for pagination.
      * 
      * <p>Since the main query produces multiple rows per deal (one per program),
-     * we need to paginate on DISTINCT deal_ids first, then fetch full data.</p>
+     * we need to paginate on unique deal_ids first, then fetch full data.</p>
+     * 
+     * <p>Note: This query uses GROUP BY (added dynamically) instead of DISTINCT
+     * to support ORDER BY on any column. The repository will append:
+     * <ul>
+     *   <li>WHERE clause (filters)</li>
+     *   <li>GROUP BY d.deal_id, [sort columns]</li>
+     *   <li>ORDER BY [sort columns]</li>
+     *   <li>LIMIT/OFFSET</li>
+     * </ul>
      */
     public static final String DEAL_IDS_SELECT = """
-        SELECT DISTINCT d.deal_id
+        SELECT d.deal_id
         FROM deals d
         LEFT JOIN users u ON d.analyst_id = u.user_id
         LEFT JOIN programs p ON d.deal_id = p.deal_id

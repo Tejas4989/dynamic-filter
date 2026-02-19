@@ -64,28 +64,28 @@ public class DealRepository {
     /**
      * Finds deals matching the filter criteria with pagination.
      * 
-     * <p>Uses two-query approach for correct pagination on deals (not rows).</p>
+     * <p>Uses two-query approach for correct pagination on deals (not rows):</p>
+     * <ol>
+     *   <li>Query 1: Get paginated deal IDs (using GROUP BY for sort support)</li>
+     *   <li>Query 2: Get full data for those deal IDs</li>
+     * </ol>
+     * 
+     * <p><b>Why GROUP BY instead of DISTINCT?</b><br>
+     * DISTINCT requires ORDER BY columns to be in SELECT list.
+     * GROUP BY allows ORDER BY on any grouped column, enabling sorting.</p>
      *
      * @param request the filter request containing criteria, sorts, and pagination
      * @return a page of Deal objects (with nested Programs)
      */
     public PageResponse<Deal> findAll(FilterRequest request) {
-        // Create a request without sorts for the deal IDs query
-        // (DISTINCT queries can't ORDER BY columns not in SELECT)
-        FilterRequest requestWithoutSorts = request.withParsedCriteria(request.filters(), List.of());
-        
-        // Step 1: Build WHERE clause from filters (no sorts for DISTINCT query)
-        SqlQueryBuilder.QueryResult queryResult = queryBuilder.buildQuery(
-            DealFilterView.DEAL_IDS_SELECT.trim(),
-            requestWithoutSorts,
-            filterViewMetadata
-        );
+        // Step 1: Build the deal IDs query with GROUP BY (supports sorting)
+        DealIdsQueryResult dealIdsQueryResult = buildDealIdsQuery(request);
         
         // Step 2: Get total count of distinct deals
-        long totalElements = executeCountQuery(
-            buildCountQuery(requestWithoutSorts),
-            queryResult.parameters()
-        );
+        // Build count query using same parameters (excluding limit/offset)
+        Map<String, Object> countParams = new LinkedHashMap<>();
+        String countSql = buildCountQuery(request, countParams);
+        long totalElements = executeCountQuery(countSql, countParams);
         
         if (totalElements == 0) {
             return PageResponse.<Deal>builder()
@@ -98,8 +98,11 @@ public class DealRepository {
                 .build();
         }
         
-        // Step 3: Get paginated deal IDs
-        List<Long> dealIds = executeDealIdsQuery(queryResult.sql(), queryResult.parameters());
+        // Step 3: Get paginated deal IDs (with sorting applied via GROUP BY)
+        List<Long> dealIds = executeDealIdsQuery(
+            dealIdsQueryResult.sql(), 
+            dealIdsQueryResult.parameters()
+        );
         
         if (dealIds.isEmpty()) {
             return PageResponse.<Deal>builder()
@@ -129,6 +132,79 @@ public class DealRepository {
     }
     
     /**
+     * Result holder for the deal IDs query.
+     */
+    private record DealIdsQueryResult(String sql, Map<String, Object> parameters) {}
+    
+    /**
+     * Builds the deal IDs query with GROUP BY to support sorting.
+     * 
+     * <p>Uses GROUP BY instead of DISTINCT because:</p>
+     * <ul>
+     *   <li>DISTINCT requires ORDER BY columns to be in SELECT</li>
+     *   <li>GROUP BY allows ORDER BY on any grouped column</li>
+     * </ul>
+     * 
+     * <p>Generated SQL example:</p>
+     * <pre>
+     * SELECT d.deal_id
+     * FROM deals d
+     * LEFT JOIN users u ON d.analyst_id = u.user_id
+     * LEFT JOIN programs p ON d.deal_id = p.deal_id
+     * WHERE d.deal_status = :p1
+     * GROUP BY d.deal_id, d.deal_amount
+     * ORDER BY d.deal_amount DESC
+     * LIMIT :limit OFFSET :offset
+     * </pre>
+     */
+    private DealIdsQueryResult buildDealIdsQuery(FilterRequest request) {
+        StringBuilder sql = new StringBuilder(DealFilterView.DEAL_IDS_SELECT.trim());
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        java.util.concurrent.atomic.AtomicInteger paramCounter = new java.util.concurrent.atomic.AtomicInteger(1);
+        
+        // Add WHERE clause if there are filters
+        if (!request.filters().isEmpty()) {
+            String whereClause = queryBuilder.buildWhereClause(
+                request.filters(), filterViewMetadata, parameters, paramCounter);
+            if (!whereClause.isEmpty()) {
+                sql.append(" WHERE ").append(whereClause);
+            }
+        }
+        
+        // Build GROUP BY clause - always include deal_id, plus any sort columns
+        List<String> groupByColumns = new ArrayList<>();
+        groupByColumns.add("d.deal_id");
+        
+        // Add sort columns to GROUP BY (required for ORDER BY to work with GROUP BY)
+        if (!request.sorts().isEmpty()) {
+            for (var sort : request.sorts()) {
+                String column = filterViewMetadata.getColumnName(sort.field())
+                    .orElse(null);
+                if (column != null && !groupByColumns.contains(column)) {
+                    groupByColumns.add(column);
+                }
+            }
+        }
+        
+        sql.append(" GROUP BY ").append(String.join(", ", groupByColumns));
+        
+        // Add ORDER BY if sorts are specified
+        if (!request.sorts().isEmpty()) {
+            String orderBy = queryBuilder.buildOrderByClause(request.sorts(), filterViewMetadata);
+            if (!orderBy.isEmpty()) {
+                sql.append(" ORDER BY ").append(orderBy);
+            }
+        }
+        
+        // Add pagination
+        sql.append(" LIMIT :limit OFFSET :offset");
+        parameters.put("limit", request.limit());
+        parameters.put("offset", request.offset());
+        
+        return new DealIdsQueryResult(sql.toString(), parameters);
+    }
+    
+    /**
      * Finds a deal by ID with all its programs.
      */
     public Optional<Deal> findById(Long dealId) {
@@ -149,18 +225,24 @@ public class DealRepository {
     
     /**
      * Builds the count query with filters applied.
+     * 
+     * <p>Uses the same parameter names as buildDealIdsQuery so they can share
+     * the same parameter map.</p>
      */
-    private String buildCountQuery(FilterRequest request) {
-        SqlQueryBuilder.QueryResult result = queryBuilder.buildQuery(
-            DealFilterView.COUNT_SELECT.trim(),
-            request,
-            filterViewMetadata
-        );
-        // Remove LIMIT/OFFSET and ORDER BY from count query
-        String sql = result.sql();
-        sql = sql.replaceAll("\\s+ORDER\\s+BY\\s+[^\\s]+(\\s+(ASC|DESC))?(\\s*,\\s*[^\\s]+(\\s+(ASC|DESC))?)*", "");
-        sql = sql.replaceAll("\\s+LIMIT\\s+:\\w+\\s+OFFSET\\s+:\\w+", "");
-        return sql;
+    private String buildCountQuery(FilterRequest request, Map<String, Object> parameters) {
+        StringBuilder sql = new StringBuilder(DealFilterView.COUNT_SELECT.trim());
+        
+        // Add WHERE clause if there are filters (reuse same param names as deal IDs query)
+        if (!request.filters().isEmpty()) {
+            java.util.concurrent.atomic.AtomicInteger paramCounter = new java.util.concurrent.atomic.AtomicInteger(1);
+            String whereClause = queryBuilder.buildWhereClause(
+                request.filters(), filterViewMetadata, parameters, paramCounter);
+            if (!whereClause.isEmpty()) {
+                sql.append(" WHERE ").append(whereClause);
+            }
+        }
+        
+        return sql.toString();
     }
     
     /**
