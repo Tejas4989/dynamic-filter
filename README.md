@@ -9,9 +9,15 @@ A robust, type-safe dynamic filtering system for Spring Framework (non-Boot) app
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
 - [API Reference](#api-reference)
+  - [User API](#user-api)
+  - [Deal API (Query Entity Pattern)](#deal-api-query-entity-pattern)
 - [Filter Syntax](#filter-syntax)
 - [Sort Syntax](#sort-syntax)
 - [Curl Examples](#curl-examples)
+  - [User API Examples](#user-api-examples)
+  - [Deal API Examples](#deal-api-examples)
+- [Junction Table Queries](#junction-table-queries)
+- [Query Entity Pattern](#query-entity-pattern)
 - [Project Structure](#project-structure)
 - [How It Works](#how-it-works)
 - [Extending the System](#extending-the-system)
@@ -26,6 +32,8 @@ A robust, type-safe dynamic filtering system for Spring Framework (non-Boot) app
 - ✅ **SQL Injection Protection** - All values bound via parameterized queries
 - ✅ **Reflection-based Metadata** - Auto-discovers filterable fields from entity constants
 - ✅ **Validation** - Validates filter fields and operators against entity metadata
+- ✅ **Junction Table Support** - Filter on many-to-many relationships (e.g., roleIds)
+- ✅ **Query Entity Pattern** - Filter across joined tables (FK relationships, one-to-many)
 - ✅ **No ORM Dependencies** - Pure Spring JDBC with JdbcClient
 - ✅ **Java 21 Features** - Records, Pattern Matching, modern APIs
 
@@ -128,13 +136,32 @@ pkill -f "exec:java"
 
 ## API Reference
 
-### Endpoints
+### User API
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/users` | List users with filtering, sorting, pagination |
 | GET | `/api/v1/users/{id}` | Get a single user by ID |
 | GET | `/api/v1/users/metadata/fields` | Get available filterable/sortable fields |
+
+**Filterable Fields:** `userId`, `username`, `firstName`, `lastName`, `roleIds`
+
+> **Note:** `roleIds` is stored in a junction table (`user_roles`). Filtering by roleIds uses a subquery automatically.
+
+### Deal API (Query Entity Pattern)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/deals` | List deals with filtering, sorting, pagination |
+| GET | `/api/v1/deals/{id}` | Get a single deal by ID (with all programs) |
+| GET | `/api/v1/deals/metadata/fields` | Get available filterable/sortable fields |
+
+**Filterable Fields:**
+- Deal fields: `dealId`, `dealName`, `analystId`, `dealStatus`, `dealAmount`
+- Analyst fields: `analystName` (from users table via FK)
+- Program fields: `programId`, `programName`, `programType`, `programBudget` (from programs table, one-to-many)
+
+> **Note:** The Deal API uses the **Query Entity Pattern** - filtering is done on a flattened view joining deals, users, and programs tables.
 
 ### Query Parameters
 
@@ -233,17 +260,40 @@ If direction is omitted, defaults to `asc`.
 
 ### Sample Data
 
-The database is pre-populated with these users:
-
+#### Users Table
 | ID | Username | First Name | Last Name | Roles |
 |----|----------|------------|-----------|-------|
-| 1 | jdoe | John | Doe | ADMIN, USER |
-| 2 | jsmith | Jane | Smith | USER |
-| 3 | bwilson | Bob | Wilson | USER, MODERATOR |
-| 4 | ajohnson | Alice | Johnson | ADMIN, USER, MODERATOR |
-| 5 | mgarcia | Maria | Garcia | USER |
+| 1 | jdoe | John | Doe | ADMIN (1), USER (2) |
+| 2 | jsmith | Jane | Smith | USER (2) |
+| 3 | bwilson | Bob | Wilson | USER (2), MODERATOR (3) |
+| 4 | ajohnson | Alice | Johnson | ADMIN (1), USER (2), MODERATOR (3) |
+| 5 | mgarcia | Maria | Garcia | USER (2) |
+
+#### Deals Table
+| ID | Deal Name | Analyst | Status | Amount |
+|----|-----------|---------|--------|--------|
+| 1 | Project Alpha | John Doe | ACTIVE | 1,500,000 |
+| 2 | Project Beta | John Doe | ACTIVE | 2,500,000 |
+| 3 | Project Gamma | Jane Smith | PENDING | 800,000 |
+| 4 | Project Delta | Bob Wilson | ACTIVE | 3,200,000 |
+| 5 | Project Epsilon | Alice Johnson | CLOSED | 500,000 |
+| 6 | Project Zeta | Jane Smith | ACTIVE | 1,800,000 |
+| 7 | Project Eta | (none) | DRAFT | 0 |
+
+#### Programs Table (One-to-Many with Deals)
+| Deal | Programs |
+|------|----------|
+| Project Alpha | Alpha Phase 1 (DEV), Alpha Phase 2 (TEST), Alpha Deployment (DEPLOY) |
+| Project Beta | Beta Research (RESEARCH), Beta Development (DEV) |
+| Project Gamma | Gamma Pilot (PILOT) |
+| Project Delta | Delta Phase 1-2 (DEV), Delta Testing (TEST), Delta Launch (DEPLOY) |
+| Project Epsilon | Epsilon Maintenance (MAINTENANCE) |
+| Project Zeta | Zeta Analysis (RESEARCH), Zeta Prototype (DEV) |
+| Project Eta | (no programs) |
 
 ---
+
+## User API Examples
 
 ### Basic Queries
 
@@ -336,6 +386,44 @@ curl "http://localhost:8080/api/v1/users?filter=lastName:notnull"
 
 # Find users where firstName is null (none in sample data)
 curl "http://localhost:8080/api/v1/users?filter=firstName:null"
+```
+
+---
+
+### Junction Table Filtering (roleIds)
+
+The `roleIds` field is stored in a junction table (`user_roles`), not directly in the users table.
+The system automatically generates subqueries to handle this:
+
+```bash
+# Find users with ADMIN role (roleId = 1)
+curl "http://localhost:8080/api/v1/users?filter=roleIds:in:(1)"
+# Returns: John Doe, Alice Johnson
+
+# Find users with MODERATOR role (roleId = 3)
+curl "http://localhost:8080/api/v1/users?filter=roleIds:in:(3)"
+# Returns: Bob Wilson, Alice Johnson
+
+# Find users with ADMIN OR MODERATOR role
+curl "http://localhost:8080/api/v1/users?filter=roleIds:in:(1,3)"
+# Returns: John Doe, Bob Wilson, Alice Johnson
+
+# Find users WITHOUT ADMIN role (NOT IN)
+curl "http://localhost:8080/api/v1/users?filter=roleIds:nin:(1)"
+# Returns: Jane Smith, Bob Wilson, Maria Garcia
+
+# Combined: ADMIN users whose firstName starts with "J"
+curl "http://localhost:8080/api/v1/users?filter=roleIds:in:(1),firstName:sw:J"
+# Returns: John Doe
+```
+
+**Generated SQL for `roleIds:in:(1,3)`:**
+```sql
+SELECT u.user_id, u.username, u.first_name, u.last_name
+FROM users u
+WHERE u.user_id IN (
+    SELECT ur.user_id FROM user_roles ur WHERE ur.role_id IN (:roleIds)
+)
 ```
 
 ---
@@ -474,6 +562,235 @@ curl -s "http://localhost:8080/api/v1/users?filter=firstName:sw:J" | jq
 
 ---
 
+## Deal API Examples
+
+The Deal API demonstrates the **Query Entity Pattern** - filtering across multiple joined tables.
+
+### Basic Deal Queries
+
+```bash
+# Get all deals
+curl "http://localhost:8080/api/v1/deals"
+
+# Get deal by ID (with all programs)
+curl "http://localhost:8080/api/v1/deals/4"
+
+# Get filterable fields
+curl "http://localhost:8080/api/v1/deals/metadata/fields"
+```
+
+### Filter by Deal Fields
+
+```bash
+# Filter by deal status
+curl "http://localhost:8080/api/v1/deals?filter=dealStatus:eq:ACTIVE"
+
+# Filter by deal amount (high-value deals)
+curl "http://localhost:8080/api/v1/deals?filter=dealAmount:gte:2000000"
+
+# Filter by deal name (starts with)
+curl "http://localhost:8080/api/v1/deals?filter=dealName:sw:Project%20A"
+```
+
+### Filter by Analyst (FK Relationship)
+
+```bash
+# Find deals where analyst name starts with "John"
+curl "http://localhost:8080/api/v1/deals?filter=analystName:sw:John"
+# Returns: Project Alpha, Project Beta (both assigned to John Doe)
+
+# Find deals where analyst name contains "Smith"
+curl "http://localhost:8080/api/v1/deals?filter=analystName:contains:Smith"
+# Returns: Project Gamma, Project Zeta (both assigned to Jane Smith)
+```
+
+### Filter by Program (One-to-Many Relationship)
+
+```bash
+# Find deals that have DEVELOPMENT programs
+curl "http://localhost:8080/api/v1/deals?filter=programType:eq:DEVELOPMENT"
+# Returns: Alpha, Beta, Delta, Zeta (all have at least one DEVELOPMENT program)
+
+# Find deals that have RESEARCH programs
+curl "http://localhost:8080/api/v1/deals?filter=programType:eq:RESEARCH"
+# Returns: Beta, Zeta
+
+# Find deals with program name containing "Phase"
+curl "http://localhost:8080/api/v1/deals?filter=programName:contains:Phase"
+# Returns: Alpha, Delta
+```
+
+### Combined Filters (Cross-Table)
+
+```bash
+# Deals by Jane Smith with RESEARCH programs
+curl "http://localhost:8080/api/v1/deals?filter=analystName:sw:Jane,programType:eq:RESEARCH"
+# Returns: Project Zeta
+
+# Active deals with amount >= 2M, sorted by amount desc
+curl "http://localhost:8080/api/v1/deals?filter=dealStatus:eq:ACTIVE,dealAmount:gte:2000000&sort=dealAmount:desc"
+# Returns: Delta (3.2M), Beta (2.5M)
+
+# DEVELOPMENT deals by John, sorted by deal name
+curl "http://localhost:8080/api/v1/deals?filter=analystName:sw:John,programType:eq:DEVELOPMENT&sort=dealName:asc"
+```
+
+### Sorting Deals
+
+```bash
+# Sort by deal amount descending
+curl "http://localhost:8080/api/v1/deals?sort=dealAmount:desc"
+
+# Sort by analyst name, then deal name
+curl "http://localhost:8080/api/v1/deals?sort=analystName:asc,dealName:asc"
+```
+
+### Pagination
+
+```bash
+# First 3 deals
+curl "http://localhost:8080/api/v1/deals?limit=3&offset=0"
+
+# Next 3 deals
+curl "http://localhost:8080/api/v1/deals?limit=3&offset=3"
+```
+
+---
+
+## Junction Table Queries
+
+When filtering on fields stored in junction/mapping tables, the system generates appropriate subqueries.
+
+### User roleIds (Many-to-Many)
+
+**Table Structure:**
+```
+users (user_id) ←──── user_roles (user_id, role_id) ────► roles (role_id)
+```
+
+**Filter:** `roleIds:in:(1,3)`
+
+**Generated SQL:**
+```sql
+SELECT u.user_id, u.username, u.first_name, u.last_name
+FROM users u
+WHERE u.user_id IN (
+    SELECT ur.user_id 
+    FROM user_roles ur 
+    WHERE ur.role_id IN (:roleIds)
+)
+LIMIT :limit OFFSET :offset
+```
+
+**Supported Operators for Junction Fields:**
+| Operator | SQL Generated |
+|----------|---------------|
+| `in` | `user_id IN (SELECT... WHERE role_id IN (...))` |
+| `nin` | `user_id NOT IN (SELECT... WHERE role_id IN (...))` |
+| `eq` | `user_id IN (SELECT... WHERE role_id = ...)` |
+| `ne` | `user_id NOT IN (SELECT... WHERE role_id = ...)` |
+
+---
+
+## Query Entity Pattern
+
+For complex queries across multiple tables with FK and one-to-many relationships, we use the **Query Entity Pattern**.
+
+### The Problem
+
+When you have:
+- `deals` table with `analyst_id` (FK to users)
+- `programs` table with `deal_id` (FK to deals)
+
+You want to filter deals by:
+- Analyst name (from users table)
+- Program type (from programs table)
+
+### The Solution: Query Entity
+
+**1. Domain Entity** (returned to API):
+```java
+public record Deal(
+    Long dealId,
+    String dealName,
+    String analystName,      // Denormalized from users
+    List<Program> programs   // Nested collection
+) {}
+```
+
+**2. Query Entity** (flat view for filtering):
+```java
+public record DealFilterView(
+    Long dealId,
+    String dealName,
+    String analystName,      // From users via JOIN
+    Long programId,          // From programs via JOIN
+    String programName,
+    String programType
+) {
+    public static final String BASE_SELECT = """
+        SELECT d.deal_id, d.deal_name,
+               CONCAT(u.first_name, ' ', u.last_name) AS analyst_name,
+               p.program_id, p.program_name, p.program_type
+        FROM deals d
+        LEFT JOIN users u ON d.analyst_id = u.user_id
+        LEFT JOIN programs p ON d.deal_id = p.deal_id
+        """;
+}
+```
+
+### How It Works
+
+```
+HTTP Request: GET /deals?filter=analystName:sw:John,programType:eq:DEVELOPMENT
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ DealRepository                                                               │
+│                                                                              │
+│ 1. Build query using DealFilterView (flat)                                   │
+│    SELECT ... FROM deals d                                                   │
+│    LEFT JOIN users u ON d.analyst_id = u.user_id                            │
+│    LEFT JOIN programs p ON d.deal_id = p.deal_id                            │
+│    WHERE CONCAT(u.first_name, ' ', u.last_name) LIKE 'John%'                │
+│      AND p.program_type = 'DEVELOPMENT'                                      │
+│                                                                              │
+│ 2. Execute query → Get FLAT rows (duplicates per program)                   │
+│    | deal_id | deal_name | analyst_name | program_id | program_name |        │
+│    |---------|-----------|--------------|------------|--------------|        │
+│    | 1       | Alpha     | John Doe     | 1          | Phase 1      |        │
+│    | 1       | Alpha     | John Doe     | 2          | Phase 2      |        │
+│    | 2       | Beta      | John Doe     | 4          | Research     |        │
+│                                                                              │
+│ 3. AGGREGATE: Group flat rows into Deal objects with nested Programs        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+Response: [
+  {
+    "dealId": 1,
+    "dealName": "Alpha",
+    "analystName": "John Doe",
+    "programs": [
+      {"programId": 1, "programName": "Phase 1"},
+      {"programId": 2, "programName": "Phase 2"}
+    ]
+  },
+  ...
+]
+```
+
+### Key Benefits
+
+1. **Filter on ANY joined field** - analyst name, program type, etc.
+2. **No manual subqueries** - JOINs are built into the query entity
+3. **Reusable** - SqlQueryBuilder works generically on the flat structure
+4. **Clean separation** - Query entity (filtering) vs Domain entity (API response)
+5. **Proper pagination** - Paginates on distinct deals, not rows
+
+---
+
 ## Project Structure
 
 ```
@@ -504,19 +821,30 @@ src/main/java/com/example/
 │   │   └── FilterParser.java       # Parses filter/sort strings
 │   └── validation/
 │       └── FilterValidator.java    # Validates against metadata
-└── user/
+├── user/
+│   ├── api/
+│   │   └── UserController.java     # REST controller
+│   ├── entity/
+│   │   └── User.java               # User record with FIELD_* constants
+│   ├── repository/
+│   │   └── UserRepository.java     # JdbcClient repository (with junction table support)
+│   └── service/
+│       └── UserService.java        # Service layer
+└── deal/                            # Query Entity Pattern example
     ├── api/
-    │   └── UserController.java     # REST controller
+    │   └── DealController.java     # REST controller
     ├── entity/
-    │   └── User.java               # User record with FIELD_* constants
+    │   ├── Deal.java               # Domain entity (with nested Programs)
+    │   ├── DealFilterView.java     # Query entity (flat view for filtering)
+    │   └── Program.java            # Program domain entity
     ├── repository/
-    │   └── UserRepository.java     # JdbcClient repository
+    │   └── DealRepository.java     # Repository with JOIN query + aggregation
     └── service/
-        └── UserService.java        # Service layer
+        └── DealService.java        # Service layer
 
 src/main/resources/
 ├── application.properties          # Database configuration
-├── schema.sql                      # Database schema + sample data
+├── schema.sql                      # Database schema + sample data (users, deals, programs)
 └── UserAPI.yaml                    # OpenAPI specification
 ```
 
@@ -573,6 +901,30 @@ With parameters: `{p1: "Jo%", limit: 20, offset: 0}`
 
 **All values are bound via parameters - never concatenated into SQL!**
 
+### 6. Junction Table Handling
+
+For fields stored in junction tables (like `roleIds`), the repository generates subqueries:
+
+```java
+// In UserRepository.buildRoleIdConditions():
+switch (operator) {
+    case IN -> {
+        conditions.add("u.user_id IN (SELECT ur.user_id FROM user_roles ur WHERE ur.role_id IN (:" + paramName + "))");
+    }
+    case NOT_IN -> {
+        conditions.add("u.user_id NOT IN (SELECT ur.user_id FROM user_roles ur WHERE ur.role_id IN (:" + paramName + "))");
+    }
+}
+```
+
+### 7. Query Entity Pattern (for JOINs)
+
+For complex multi-table queries, use a flat **Query Entity** for filtering:
+
+1. **DealFilterView** - Flat record with all filterable fields from joined tables
+2. Filter/sort using the flat structure
+3. **Aggregate** flat rows back into hierarchical domain objects (Deal with nested Programs)
+
 ---
 
 ## Extending the System
@@ -623,6 +975,73 @@ Follow the same pattern as `UserService` and `UserController`.
 1. Add to `FilterOperator` enum
 2. Update `SqlQueryBuilder.buildCondition()` if needed
 3. Update `FilterValidator` if type restrictions apply
+
+### Adding Junction Table Support
+
+For many-to-many relationships (like User-Roles):
+
+1. **Identify the junction field** in your entity (e.g., `roleIds`)
+2. **Add handling in Repository** to generate subqueries:
+
+```java
+private String buildJunctionConditions(List<FilterCriteria> junctionFilters, Map<String, Object> params) {
+    List<String> conditions = new ArrayList<>();
+    
+    for (FilterCriteria filter : junctionFilters) {
+        if (filter.operator() == FilterOperator.IN) {
+            conditions.add("main.id IN (SELECT junction.main_id FROM junction_table junction WHERE junction.related_id IN (:" + paramName + "))");
+        }
+    }
+    
+    return String.join(" AND ", conditions);
+}
+```
+
+3. **Separate junction filters** from standard filters in `findAll()`
+4. **Combine conditions** into the final query
+
+### Using the Query Entity Pattern
+
+For filtering across multiple joined tables:
+
+1. **Create Domain Entity** (rich object returned to API):
+
+```java
+public record Order(Long orderId, String customerName, List<OrderItem> items) {}
+```
+
+2. **Create Query Entity** (flat view for filtering):
+
+```java
+public record OrderFilterView(
+    Long orderId,
+    String customerName,    // From customers table
+    Long itemId,            // From order_items table
+    String productName      // From products table
+) {
+    public static final String BASE_SELECT = """
+        SELECT o.order_id, c.customer_name, i.item_id, p.product_name
+        FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.customer_id
+        LEFT JOIN order_items i ON o.order_id = i.order_id
+        LEFT JOIN products p ON i.product_id = p.product_id
+        """;
+}
+```
+
+3. **Implement Repository** with aggregation:
+
+```java
+public PageResponse<Order> findAll(FilterRequest request) {
+    // 1. Query using flat OrderFilterView
+    List<OrderFilterView> flatRows = executeFlatQuery(request);
+    
+    // 2. Aggregate into hierarchical Orders
+    List<Order> orders = aggregateToOrders(flatRows);
+    
+    return PageResponse.of(orders, totalCount, request);
+}
+```
 
 ---
 
