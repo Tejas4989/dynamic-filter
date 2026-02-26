@@ -19,8 +19,7 @@ import java.util.Objects;
  *
  * @param dealId unique deal identifier
  * @param dealName the deal name
- * @param analystId the analyst's user ID (FK to users)
- * @param analystName the analyst's full name (denormalized from users table)
+ * @param userOption the analyst assigned to this deal (contains analystId and analystName)
  * @param dealStatus the deal status (DRAFT, ACTIVE, PENDING, CLOSED)
  * @param dealAmount the total deal amount
  * @param programs list of programs associated with this deal
@@ -28,8 +27,7 @@ import java.util.Objects;
 public record Deal(
     Long dealId,
     String dealName,
-    Long analystId,
-    String analystName,
+    UserOption analyst,
     String dealStatus,
     BigDecimal dealAmount,
     List<Program> programs
@@ -49,8 +47,7 @@ public record Deal(
     public static final class Builder {
         private Long dealId;
         private String dealName;
-        private Long analystId;
-        private String analystName;
+        private UserOption analyst;
         private String dealStatus;
         private BigDecimal dealAmount;
         private List<Program> programs = List.of();
@@ -66,14 +63,9 @@ public record Deal(
             this.dealName = dealName;
             return this;
         }
-        
-        public Builder analystId(Long analystId) {
-            this.analystId = analystId;
-            return this;
-        }
-        
-        public Builder analystName(String analystName) {
-            this.analystName = analystName;
+
+        public Builder analyst(UserOption analyst) {
+            this.analyst = analyst;
             return this;
         }
         
@@ -93,7 +85,7 @@ public record Deal(
         }
         
         public Deal build() {
-            return new Deal(dealId, dealName, analystId, analystName, dealStatus, dealAmount, programs);
+            return new Deal(dealId, dealName, analyst, dealStatus, dealAmount, programs);
         }
     }
 }

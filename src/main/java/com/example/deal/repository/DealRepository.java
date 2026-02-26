@@ -3,6 +3,7 @@ package com.example.deal.repository;
 import com.example.deal.entity.Deal;
 import com.example.deal.entity.DealFilterView;
 import com.example.deal.entity.Program;
+import com.example.deal.entity.UserOption;
 import com.example.filter.FilterService;
 import com.example.filter.jdbc.SqlQueryBuilder;
 import com.example.filter.metadata.EntityMetadata;
@@ -310,13 +311,14 @@ public class DealRepository {
             
             // Create deal builder if not exists
             if (!dealBuilders.containsKey(dealId)) {
-                dealBuilders.put(dealId, Deal.builder()
-                    .dealId(dealId)
-                    .dealName(row.dealName())
-                    .analystId(row.analystId())
-                    .analystName(row.analystName())
-                    .dealStatus(row.dealStatus())
-                    .dealAmount(row.dealAmount()));
+        dealBuilders.put(
+            dealId,
+            Deal.builder()
+                .dealId(dealId)
+                .dealName(row.dealName())
+                .analyst(new UserOption(row.analystId(), row.analystName()))
+                .dealStatus(row.dealStatus())
+                .dealAmount(row.dealAmount()));
                 dealPrograms.put(dealId, new ArrayList<>());
             }
             
