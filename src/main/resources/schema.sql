@@ -84,11 +84,20 @@ CREATE TABLE IF NOT EXISTS programs (
     FOREIGN KEY (deal_id) REFERENCES deals(deal_id) ON DELETE CASCADE
 );
 
+-- Contracts table (One-to-Many with Programs)
+CREATE TABLE IF NOT EXISTS contracts (
+    contract_id   BIGINT PRIMARY KEY AUTO_INCREMENT,
+    contract_name VARCHAR(200) NOT NULL,
+    program_id    BIGINT NOT NULL,
+    FOREIGN KEY (program_id) REFERENCES programs(program_id) ON DELETE CASCADE
+);
+
 -- Indexes for deals
 CREATE INDEX IF NOT EXISTS idx_deals_analyst_id ON deals(analyst_id);
 CREATE INDEX IF NOT EXISTS idx_deals_deal_name ON deals(deal_name);
 CREATE INDEX IF NOT EXISTS idx_deals_deal_status ON deals(deal_status);
 CREATE INDEX IF NOT EXISTS idx_programs_deal_id ON programs(deal_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_program_id ON contracts(program_id);
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Sample Deal Data
@@ -130,5 +139,18 @@ INSERT INTO programs (program_id, program_name, deal_id, program_type, budget) V
     -- Project Zeta programs
     (12, 'Zeta Analysis', 6, 'RESEARCH', 600000.00),
     (13, 'Zeta Prototype', 6, 'DEVELOPMENT', 800000.00);
-    
+
+-- Insert sample contracts (linked to programs)
+INSERT INTO contracts (contract_id, contract_name, program_id) VALUES
+    -- Alpha Phase 1 contracts
+    (1, 'Alpha Phase 1 - Dev Contract', 1),
+    (2, 'Alpha Phase 1 - Support Contract', 1),
+    -- Alpha Phase 2 contracts
+    (3, 'Alpha Phase 2 - QA Contract', 2),
+    -- Beta Research contracts
+    (4, 'Beta Research - Consulting', 4),
+    -- Delta Phase 1 contracts
+    (5, 'Delta Phase 1 - Implementation', 7),
+    (6, 'Delta Phase 1 - Licensing', 7);
+
 -- Note: Project Eta (deal_id=7) has NO programs - tests LEFT JOIN behavior

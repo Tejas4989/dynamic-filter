@@ -1,5 +1,6 @@
 package com.example.deal.repository;
 
+import com.example.deal.entity.Contract;
 import com.example.deal.entity.Deal;
 import com.example.deal.entity.DealFilterView;
 import com.example.deal.entity.Program;
@@ -298,52 +299,93 @@ public class DealRepository {
     
     /**
      * Aggregates flat DealFilterView rows into hierarchical Deal objects.
-     * 
-     * <p>Groups rows by dealId and collects programs for each deal.</p>
+     *
+     * <p>Groups rows by dealId, collects programs (deduplicated by programId),
+     * and nests contracts under each program.</p>
      */
     private List<Deal> aggregateToDeals(List<DealFilterView> flatRows) {
         // Use LinkedHashMap to preserve order
         Map<Long, Deal.Builder> dealBuilders = new LinkedHashMap<>();
-        Map<Long, List<Program>> dealPrograms = new LinkedHashMap<>();
-        
+        // dealId -> programId -> (Program builder, List<Contract>)
+        Map<Long, Map<Long, ProgramAccumulator>> dealPrograms = new LinkedHashMap<>();
+
         for (DealFilterView row : flatRows) {
             Long dealId = row.dealId();
-            
+
             // Create deal builder if not exists
             if (!dealBuilders.containsKey(dealId)) {
-        dealBuilders.put(
-            dealId,
-            Deal.builder()
-                .dealId(dealId)
-                .dealName(row.dealName())
-                .analyst(new UserOption(row.analystId(), row.analystName()))
-                .dealStatus(row.dealStatus())
-                .dealAmount(row.dealAmount()));
-                dealPrograms.put(dealId, new ArrayList<>());
+                dealBuilders.put(
+                    dealId,
+                    Deal.builder()
+                        .dealId(dealId)
+                        .dealName(row.dealName())
+                        .analyst(new UserOption(row.analystId(), row.analystName()))
+                        .dealStatus(row.dealStatus())
+                        .dealAmount(row.dealAmount()));
+                dealPrograms.put(dealId, new LinkedHashMap<>());
             }
-            
+
             // Add program if present (LEFT JOIN may produce null program)
             if (row.programId() != null) {
-                dealPrograms.get(dealId).add(Program.builder()
-                    .programId(row.programId())
-                    .programName(row.programName())
-                    .programType(row.programType())
-                    .budget(row.programBudget())
-                    .build());
+                Map<Long, ProgramAccumulator> programs = dealPrograms.get(dealId);
+                programs.computeIfAbsent(row.programId(), pid -> new ProgramAccumulator(
+                    row.programId(),
+                    row.programName(),
+                    row.programType(),
+                    row.programBudget()
+                ));
+
+                // Add contract if present
+                if (row.contractId() != null && row.contractName() != null) {
+                    programs.get(row.programId()).contracts.add(
+                        Contract.builder()
+                            .contractId(row.contractId())
+                            .contractName(row.contractName())
+                            .build()
+                    );
+                }
             }
         }
-        
-        // Build final Deal objects with programs
+
+        // Build final Deal objects with programs and nested contracts
         List<Deal> deals = new ArrayList<>();
         for (Map.Entry<Long, Deal.Builder> entry : dealBuilders.entrySet()) {
             Long dealId = entry.getKey();
+            List<Program> programs = dealPrograms.get(dealId).values().stream()
+                .map(acc -> Program.builder()
+                    .programId(acc.programId)
+                    .programName(acc.programName)
+                    .programType(acc.programType)
+                    .budget(acc.programBudget)
+                    .contracts(List.copyOf(acc.contracts))
+                    .build())
+                .toList();
             Deal deal = entry.getValue()
-                .programs(dealPrograms.get(dealId))
+                .programs(programs)
                 .build();
             deals.add(deal);
         }
-        
+
         return deals;
+    }
+
+    /**
+     * Accumulates program data and its contracts during aggregation.
+     */
+    private static class ProgramAccumulator {
+        final Long programId;
+        final String programName;
+        final String programType;
+        final java.math.BigDecimal programBudget;
+        final List<Contract> contracts = new ArrayList<>();
+
+        ProgramAccumulator(Long programId, String programName, String programType,
+                          java.math.BigDecimal programBudget) {
+            this.programId = programId;
+            this.programName = programName;
+            this.programType = programType;
+            this.programBudget = programBudget;
+        }
     }
     
     /**
@@ -351,7 +393,8 @@ public class DealRepository {
      */
     private DealFilterView mapToFilterView(ResultSet rs, int rowNum) throws SQLException {
         Long programId = rs.getObject("program_id") != null ? rs.getLong("program_id") : null;
-        
+        Long contractId = rs.getObject("contract_id") != null ? rs.getLong("contract_id") : null;
+
         return new DealFilterView(
             rs.getLong("deal_id"),
             rs.getString("deal_name"),
@@ -362,7 +405,9 @@ public class DealRepository {
             programId,
             rs.getString("program_name"),
             rs.getString("program_type"),
-            rs.getBigDecimal("program_budget")
+            rs.getBigDecimal("program_budget"),
+            contractId,
+            rs.getString("contract_name")
         );
     }
     
