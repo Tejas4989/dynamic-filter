@@ -104,4 +104,18 @@ public record FilterRequest(
     public boolean hasSorts() {
         return !sorts.isEmpty() || (sortString != null && !sortString.isBlank());
     }
+
+    /**
+     * Returns filter criteria as string descriptions for response metadata.
+     */
+    public java.util.List<String> appliedFiltersAsStrings() {
+        return filters.stream().map(Object::toString).toList();
+    }
+
+    /**
+     * Returns sort criteria as string descriptions for response metadata.
+     */
+    public java.util.List<String> appliedSortsAsStrings() {
+        return sorts.stream().map(Object::toString).toList();
+    }
 }

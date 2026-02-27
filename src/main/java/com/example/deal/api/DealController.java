@@ -2,21 +2,15 @@ package com.example.deal.api;
 
 import com.example.deal.entity.Deal;
 import com.example.deal.service.DealService;
-import com.example.filter.exception.FilterParseException;
-import com.example.filter.exception.FilterValidationException;
 import com.example.filter.model.PageResponse;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -32,6 +26,7 @@ import java.util.Set;
  *   <li>Deal fields: dealId, dealName, analystId, dealStatus, dealAmount</li>
  *   <li>Analyst fields: analystName (from users table via FK)</li>
  *   <li>Program fields: programId, programName, programType, programBudget</li>
+ *   <li>Contract fields: contractId, contractName (from contracts table under program)</li>
  * </ul>
  * 
  * <p><b>Example requests:</b>
@@ -107,52 +102,4 @@ public class DealController {
             "sortableFields", dealService.getSortableFields()
         ));
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // EXCEPTION HANDLERS
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Handles filter parsing errors.
-     */
-    @ExceptionHandler(FilterParseException.class)
-    public ResponseEntity<ErrorResponse> handleFilterParseException(FilterParseException ex) {
-        ErrorResponse error = new ErrorResponse(
-            Instant.now().toString(),
-            HttpStatus.BAD_REQUEST.value(),
-            "Bad Request",
-            ex.getMessage(),
-            "/api/v1/deals",
-            ex.getErrors()
-        );
-        return ResponseEntity.badRequest().body(error);
-    }
-    
-    /**
-     * Handles filter validation errors.
-     */
-    @ExceptionHandler(FilterValidationException.class)
-    public ResponseEntity<ErrorResponse> handleFilterValidationException(FilterValidationException ex) {
-        ErrorResponse error = new ErrorResponse(
-            Instant.now().toString(),
-            HttpStatus.BAD_REQUEST.value(),
-            "Bad Request",
-            ex.getMessage(),
-            "/api/v1/deals",
-            ex.getErrors()
-        );
-        return ResponseEntity.badRequest().body(error);
-    }
-    
-    /**
-     * Error response DTO.
-     */
-    public record ErrorResponse(
-        String timestamp,
-        int status,
-        String error,
-        String message,
-        String path,
-        List<String> details
-    ) {}
 }

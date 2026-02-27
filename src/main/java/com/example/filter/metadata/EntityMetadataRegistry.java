@@ -1,10 +1,10 @@
 package com.example.filter.metadata;
 
+import com.example.filter.util.StringUtils;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
-import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -99,7 +99,7 @@ public final class EntityMetadataRegistry {
             // Fall through to derive from class name
         }
         // Convert class name to snake_case (e.g., User -> users, UserRole -> user_roles)
-        return toSnakeCase(entityClass.getSimpleName()) + "s";
+        return StringUtils.toSnakeCase(entityClass.getSimpleName()) + "s";
     }
     
     /**
@@ -159,7 +159,7 @@ public final class EntityMetadataRegistry {
                     }
                     
                     // Get column name from mappings or derive from field name
-                    String columnName = columnMappings.getOrDefault(fieldName, toSnakeCase(fieldName));
+                    String columnName = columnMappings.getOrDefault(fieldName, StringUtils.toSnakeCase(fieldName));
                     
                     // Create field metadata (all discovered fields are filterable and sortable by default)
                     fields.put(fieldName, FieldMetadata.of(fieldName, columnName, fieldType));
@@ -218,27 +218,6 @@ public final class EntityMetadataRegistry {
                 } else {
                     result.append(Character.toLowerCase(c));
                 }
-            }
-        }
-        
-        return result.toString();
-    }
-    
-    /**
-     * Converts camelCase to snake_case.
-     */
-    private String toSnakeCase(String str) {
-        StringBuilder result = new StringBuilder();
-        
-        for (int i = 0; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if (Character.isUpperCase(c)) {
-                if (i > 0) {
-                    result.append('_');
-                }
-                result.append(Character.toLowerCase(c));
-            } else {
-                result.append(c);
             }
         }
         

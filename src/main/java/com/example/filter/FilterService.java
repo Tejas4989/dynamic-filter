@@ -8,11 +8,14 @@ import com.example.filter.model.SortCriteria;
 import com.example.filter.parser.FilterParser;
 import com.example.filter.validation.FilterValidator;
 
+import org.springframework.stereotype.Service;
+
 import java.util.List;
 
 /**
  * Main service for parsing and validating filter requests.
  */
+@Service
 public final class FilterService {
     
     private final EntityMetadataRegistry metadataRegistry;

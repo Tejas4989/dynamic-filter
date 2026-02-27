@@ -19,7 +19,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Repository for User entity using Spring JdbcClient.
@@ -64,10 +63,10 @@ public class UserRepository {
     private final FilterService filterService;
     private final EntityMetadata metadata;
     
-    public UserRepository(JdbcClient jdbcClient) {
+    public UserRepository(JdbcClient jdbcClient, FilterService filterService) {
         this.jdbcClient = jdbcClient;
         this.queryBuilder = SqlQueryBuilder.getInstance();
-        this.filterService = new FilterService();
+        this.filterService = filterService;
         this.metadata = filterService.getMetadata(User.class);
     }
     
@@ -133,21 +132,13 @@ public class UserRepository {
             .map(this::loadRoleIds)
             .toList();
         
-        // Build response with applied filter/sort info
-        List<String> appliedFilters = request.filters().stream()
-            .map(Object::toString)
-            .toList();
-        List<String> appliedSorts = request.sorts().stream()
-            .map(Object::toString)
-            .toList();
-        
         return PageResponse.<User>builder()
             .content(users)
             .page(request.page())
             .size(request.limit())
             .totalElements(totalElements)
-            .appliedFilters(appliedFilters)
-            .appliedSorts(appliedSorts)
+            .appliedFilters(request.appliedFiltersAsStrings())
+            .appliedSorts(request.appliedSortsAsStrings())
             .build();
     }
     

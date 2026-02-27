@@ -26,9 +26,9 @@ public class UserService {
     private final UserRepository userRepository;
     private final FilterService filterService;
     
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, FilterService filterService) {
         this.userRepository = userRepository;
-        this.filterService = new FilterService();
+        this.filterService = filterService;
     }
     
     /**

@@ -55,11 +55,10 @@ public class DealRepository {
     private final FilterService filterService;
     private final EntityMetadata filterViewMetadata;
     
-    public DealRepository(JdbcClient jdbcClient) {
+    public DealRepository(JdbcClient jdbcClient, FilterService filterService) {
         this.jdbcClient = jdbcClient;
         this.queryBuilder = SqlQueryBuilder.getInstance();
-        this.filterService = new FilterService();
-        // Use DealFilterView for filter metadata (flat view with all filterable fields)
+        this.filterService = filterService;
         this.filterViewMetadata = filterService.getMetadata(DealFilterView.class);
     }
     
@@ -95,8 +94,8 @@ public class DealRepository {
                 .page(request.page())
                 .size(request.limit())
                 .totalElements(0)
-                .appliedFilters(formatAppliedFilters(request))
-                .appliedSorts(formatAppliedSorts(request))
+                .appliedFilters(request.appliedFiltersAsStrings())
+                .appliedSorts(request.appliedSortsAsStrings())
                 .build();
         }
         
@@ -112,8 +111,8 @@ public class DealRepository {
                 .page(request.page())
                 .size(request.limit())
                 .totalElements(totalElements)
-                .appliedFilters(formatAppliedFilters(request))
-                .appliedSorts(formatAppliedSorts(request))
+                .appliedFilters(request.appliedFiltersAsStrings())
+                .appliedSorts(request.appliedSortsAsStrings())
                 .build();
         }
         
@@ -128,9 +127,9 @@ public class DealRepository {
             .page(request.page())
             .size(request.limit())
             .totalElements(totalElements)
-            .appliedFilters(formatAppliedFilters(request))
-            .appliedSorts(formatAppliedSorts(request))
-            .build();
+                .appliedFilters(request.appliedFiltersAsStrings())
+                .appliedSorts(request.appliedSortsAsStrings())
+                .build();
     }
     
     /**
@@ -376,11 +375,11 @@ public class DealRepository {
         final Long programId;
         final String programName;
         final String programType;
-        final java.math.BigDecimal programBudget;
+        final BigDecimal programBudget;
         final List<Contract> contracts = new ArrayList<>();
 
         ProgramAccumulator(Long programId, String programName, String programType,
-                          java.math.BigDecimal programBudget) {
+                          BigDecimal programBudget) {
             this.programId = programId;
             this.programName = programName;
             this.programType = programType;
@@ -411,21 +410,4 @@ public class DealRepository {
         );
     }
     
-    /**
-     * Formats applied filters for the response.
-     */
-    private List<String> formatAppliedFilters(FilterRequest request) {
-        return request.filters().stream()
-            .map(Object::toString)
-            .toList();
-    }
-    
-    /**
-     * Formats applied sorts for the response.
-     */
-    private List<String> formatAppliedSorts(FilterRequest request) {
-        return request.sorts().stream()
-            .map(Object::toString)
-            .toList();
-    }
 }

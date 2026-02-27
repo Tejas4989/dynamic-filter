@@ -1,21 +1,16 @@
 package com.example.user.api;
 
-import com.example.filter.exception.FilterParseException;
-import com.example.filter.exception.FilterValidationException;
 import com.example.filter.model.PageResponse;
 import com.example.user.entity.User;
 import com.example.user.service.UserService;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 
@@ -92,52 +87,4 @@ public class UserController {
             "sortableFields", userService.getSortableFields()
         ));
     }
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // EXCEPTION HANDLERS
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Handles filter parsing errors.
-     */
-    @ExceptionHandler(FilterParseException.class)
-    public ResponseEntity<ErrorResponse> handleFilterParseException(FilterParseException ex) {
-        ErrorResponse error = new ErrorResponse(
-            Instant.now().toString(),
-            HttpStatus.BAD_REQUEST.value(),
-            "Bad Request",
-            ex.getMessage(),
-            "/api/v1/users",
-            ex.getErrors()
-        );
-        return ResponseEntity.badRequest().body(error);
-    }
-    
-    /**
-     * Handles filter validation errors.
-     */
-    @ExceptionHandler(FilterValidationException.class)
-    public ResponseEntity<ErrorResponse> handleFilterValidationException(FilterValidationException ex) {
-        ErrorResponse error = new ErrorResponse(
-            Instant.now().toString(),
-            HttpStatus.BAD_REQUEST.value(),
-            "Bad Request",
-            ex.getMessage(),
-            "/api/v1/users",
-            ex.getErrors()
-        );
-        return ResponseEntity.badRequest().body(error);
-    }
-    
-    /**
-     * Error response DTO matching OpenAPI spec.
-     */
-    public record ErrorResponse(
-        String timestamp,
-        int status,
-        String error,
-        String message,
-        String path,
-        java.util.List<String> details
-    ) {}
 }

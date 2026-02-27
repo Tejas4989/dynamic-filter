@@ -31,9 +31,9 @@ public class DealService {
     private final DealRepository dealRepository;
     private final FilterService filterService;
     
-    public DealService(DealRepository dealRepository) {
+    public DealService(DealRepository dealRepository, FilterService filterService) {
         this.dealRepository = dealRepository;
-        this.filterService = new FilterService();
+        this.filterService = filterService;
     }
     
     /**

@@ -1,6 +1,7 @@
 package com.example.filter.jdbc;
 
 import com.example.filter.metadata.EntityMetadata;
+import com.example.filter.util.StringUtils;
 import com.example.filter.metadata.FieldMetadata;
 import com.example.filter.model.FilterCriteria;
 import com.example.filter.model.FilterOperator;
@@ -119,7 +120,7 @@ public final class SqlQueryBuilder {
         
         // Get the database column name from metadata
         String columnName = metadata.getColumnName(fieldName)
-            .orElse(toSnakeCase(fieldName));
+            .orElse(StringUtils.toSnakeCase(fieldName));
         
         // Get field metadata for type information
         FieldMetadata fieldMeta = metadata.getField(fieldName).orElse(null);
@@ -166,7 +167,7 @@ public final class SqlQueryBuilder {
         
         for (SortCriteria sort : sorts) {
             String columnName = metadata.getColumnName(sort.field())
-                .orElse(toSnakeCase(sort.field()));
+                .orElse(StringUtils.toSnakeCase(sort.field()));
             
             // Column name is from trusted metadata, direction is from enum
             orderParts.add("%s %s".formatted(columnName, sort.direction().getSql()));
@@ -202,26 +203,5 @@ public final class SqlQueryBuilder {
         }
         
         return value;
-    }
-    
-    /**
-     * Converts camelCase to snake_case.
-     */
-    private String toSnakeCase(String str) {
-        StringBuilder result = new StringBuilder();
-        
-        for (int i = 0; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if (Character.isUpperCase(c)) {
-                if (i > 0) {
-                    result.append('_');
-                }
-                result.append(Character.toLowerCase(c));
-            } else {
-                result.append(c);
-            }
-        }
-        
-        return result.toString();
     }
 }
