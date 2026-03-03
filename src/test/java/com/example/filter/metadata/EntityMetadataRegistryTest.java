@@ -98,4 +98,5 @@ class EntityMetadataRegistryTest {
         assertTrue(metadata.isSortableField("lastName"));
         assertFalse(metadata.isSortableField("nonExistentField"));
     }
+
 }

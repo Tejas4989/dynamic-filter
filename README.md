@@ -1148,6 +1148,7 @@ public PageResponse<Order> findAll(FilterRequest request) {
 
 | Document | Purpose |
 |----------|---------|
+| [docs/DEVELOPER_WALKTHROUGH.md](docs/DEVELOPER_WALKTHROUGH.md) | **Developer guide** — Self-paced walkthrough, hands-on curl examples, follow-along checklist |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | **Demo script** — Technical walkthrough, reusability highlights, file counts, talking points |
 | [docs/ADDING_NEW_FILTER_TABLE.md](docs/ADDING_NEW_FILTER_TABLE.md) | Step-by-step guide for adding a new filterable API |
 

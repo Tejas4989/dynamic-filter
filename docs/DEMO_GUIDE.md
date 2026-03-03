@@ -356,4 +356,5 @@ src/main/java/com/example/
 ## 11. Related Docs
 
 - **README.md** — Full project documentation, API reference, curl examples
+- **docs/DEVELOPER_WALKTHROUGH.md** — Developer guide for self-paced learning or follow-along during demos
 - **docs/ADDING_NEW_FILTER_TABLE.md** — Step-by-step guide for adding a new filterable API

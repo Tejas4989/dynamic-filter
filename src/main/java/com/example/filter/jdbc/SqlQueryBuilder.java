@@ -1,8 +1,8 @@
 package com.example.filter.jdbc;
 
 import com.example.filter.metadata.EntityMetadata;
-import com.example.filter.util.StringUtils;
 import com.example.filter.metadata.FieldMetadata;
+import com.example.filter.util.StringUtils;
 import com.example.filter.model.FilterCriteria;
 import com.example.filter.model.FilterOperator;
 import com.example.filter.model.FilterRequest;

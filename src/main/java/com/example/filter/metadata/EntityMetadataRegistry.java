@@ -101,7 +101,7 @@ public final class EntityMetadataRegistry {
         // Convert class name to snake_case (e.g., User -> users, UserRole -> user_roles)
         return StringUtils.toSnakeCase(entityClass.getSimpleName()) + "s";
     }
-    
+
     /**
      * Extracts column mappings from COL_* constants.
      */
