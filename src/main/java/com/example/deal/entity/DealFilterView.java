@@ -5,13 +5,9 @@ import java.math.BigDecimal;
 /**
  * Query/Filter Entity for Deal searches.
  * 
- * <p>This is a FLATTENED view that joins multiple tables for filtering purposes:
- * <ul>
- *   <li>deals table (d) - main entity</li>
- *   <li>users table (u) - analyst info via FK</li>
- *   <li>programs table (p) - one-to-many programs</li>
- *   <li>contracts table (c) - one-to-many contracts per program</li>
- * </ul>
+ * <p>This is a FLATTENED view that joins multiple tables for filtering purposes.
+ * Uses full table names (deals, users, programs, contracts) instead of aliases
+ * for a GraphQL-like, self-documenting structure.</p>
  *
  * <p><b>KEY CONCEPT:</b> This entity produces ONE ROW PER CONTRACT (or one row per program when no contracts).
  * A deal with 3 programs will appear as 3 rows in the result set.
@@ -30,12 +26,12 @@ import java.math.BigDecimal;
  * GET /api/v1/deals?filter=analystName:sw:John,programType:eq:DEVELOPMENT
  * 
  * Generates:
- * SELECT d.deal_id, d.deal_name, ..., u.first_name, ..., p.program_name, ...
- * FROM deals d
- * LEFT JOIN users u ON d.analyst_id = u.user_id
- * LEFT JOIN programs p ON d.deal_id = p.deal_id
- * WHERE CONCAT(u.first_name, ' ', u.last_name) LIKE 'John%'
- *   AND p.program_type = 'DEVELOPMENT'
+ * SELECT deals.deal_id, deals.deal_name, ..., programs.program_name, ...
+ * FROM deals
+ * LEFT JOIN users ON deals.analyst_id = users.user_id
+ * LEFT JOIN programs ON deals.deal_id = programs.deal_id
+ * WHERE CONCAT(users.first_name, ' ', users.last_name) LIKE 'John%'
+ *   AND programs.program_type = 'DEVELOPMENT'
  * </pre>
  *
  * @param dealId deal identifier
@@ -98,30 +94,29 @@ public record DealFilterView(
     public static final String FIELD_CONTRACT_NAME = "contractName";
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // COLUMN MAPPINGS
+    // COLUMN MAPPINGS (GraphQL-style: full table names, no aliases)
     // Maps Java field names to SQL column names/expressions
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Deal columns
-    public static final String COL_DEAL_ID = "d.deal_id";
-    public static final String COL_DEAL_NAME = "d.deal_name";
-    public static final String COL_ANALYST_ID = "d.analyst_id";
-    public static final String COL_DEAL_STATUS = "d.deal_status";
-    public static final String COL_DEAL_AMOUNT = "d.deal_amount";
+    // Deal columns (deals table)
+    public static final String COL_DEAL_ID = "deals.deal_id";
+    public static final String COL_DEAL_NAME = "deals.deal_name";
+    public static final String COL_ANALYST_ID = "deals.analyst_id";
+    public static final String COL_DEAL_STATUS = "deals.deal_status";
+    public static final String COL_DEAL_AMOUNT = "deals.deal_amount";
     
-    // Analyst columns (computed from users table)
-    // NOTE: For WHERE clause, we must use the expression, not the alias
-    public static final String COL_ANALYST_NAME = "CONCAT(u.first_name, ' ', u.last_name)";
+    // Analyst columns (users table)
+    public static final String COL_ANALYST_NAME = "CONCAT(users.first_name, ' ', users.last_name)";
     
-    // Program columns
-    public static final String COL_PROGRAM_ID = "p.program_id";
-    public static final String COL_PROGRAM_NAME = "p.program_name";
-    public static final String COL_PROGRAM_TYPE = "p.program_type";
-    public static final String COL_PROGRAM_BUDGET = "p.budget";
+    // Program columns (programs table)
+    public static final String COL_PROGRAM_ID = "programs.program_id";
+    public static final String COL_PROGRAM_NAME = "programs.program_name";
+    public static final String COL_PROGRAM_TYPE = "programs.program_type";
+    public static final String COL_PROGRAM_BUDGET = "programs.budget";
 
-    // Contract columns
-    public static final String COL_CONTRACT_ID = "c.contract_id";
-    public static final String COL_CONTRACT_NAME = "c.contract_name";
+    // Contract columns (contracts table)
+    public static final String COL_CONTRACT_ID = "contracts.contract_id";
+    public static final String COL_CONTRACT_NAME = "contracts.contract_name";
     
     // ═══════════════════════════════════════════════════════════════════════════
     // BASE QUERY WITH ALL JOINS
@@ -136,22 +131,22 @@ public record DealFilterView(
      */
     public static final String BASE_SELECT = """
         SELECT 
-            d.deal_id,
-            d.deal_name,
-            d.analyst_id,
-            d.deal_status,
-            d.deal_amount,
-            CONCAT(u.first_name, ' ', u.last_name) AS analyst_name,
-            p.program_id,
-            p.program_name,
-            p.program_type,
-            p.budget AS program_budget,
-            c.contract_id,
-            c.contract_name
-        FROM deals d
-        LEFT JOIN users u ON d.analyst_id = u.user_id
-        LEFT JOIN programs p ON d.deal_id = p.deal_id
-        LEFT JOIN contracts c ON p.program_id = c.program_id
+            deals.deal_id,
+            deals.deal_name,
+            deals.analyst_id,
+            deals.deal_status,
+            deals.deal_amount,
+            CONCAT(users.first_name, ' ', users.last_name) AS analyst_name,
+            programs.program_id,
+            programs.program_name,
+            programs.program_type,
+            programs.budget AS program_budget,
+            contracts.contract_id,
+            contracts.contract_name
+        FROM deals
+        LEFT JOIN users ON deals.analyst_id = users.user_id
+        LEFT JOIN programs ON deals.deal_id = programs.deal_id
+        LEFT JOIN contracts ON programs.program_id = contracts.program_id
         """;
     
     /**
@@ -164,28 +159,28 @@ public record DealFilterView(
      * to support ORDER BY on any column. The repository will append:
      * <ul>
      *   <li>WHERE clause (filters)</li>
-     *   <li>GROUP BY d.deal_id, [sort columns]</li>
+     *   <li>GROUP BY deals.deal_id, [sort columns]</li>
      *   <li>ORDER BY [sort columns]</li>
      *   <li>LIMIT/OFFSET</li>
      * </ul>
      */
     public static final String DEAL_IDS_SELECT = """
-        SELECT d.deal_id
-        FROM deals d
-        LEFT JOIN users u ON d.analyst_id = u.user_id
-        LEFT JOIN programs p ON d.deal_id = p.deal_id
-        LEFT JOIN contracts c ON p.program_id = c.program_id
+        SELECT deals.deal_id
+        FROM deals
+        LEFT JOIN users ON deals.analyst_id = users.user_id
+        LEFT JOIN programs ON deals.deal_id = programs.deal_id
+        LEFT JOIN contracts ON programs.program_id = contracts.program_id
         """;
     
     /**
      * Count query for total distinct deals.
      */
     public static final String COUNT_SELECT = """
-        SELECT COUNT(DISTINCT d.deal_id)
-        FROM deals d
-        LEFT JOIN users u ON d.analyst_id = u.user_id
-        LEFT JOIN programs p ON d.deal_id = p.deal_id
-        LEFT JOIN contracts c ON p.program_id = c.program_id
+        SELECT COUNT(DISTINCT deals.deal_id)
+        FROM deals
+        LEFT JOIN users ON deals.analyst_id = users.user_id
+        LEFT JOIN programs ON deals.deal_id = programs.deal_id
+        LEFT JOIN contracts ON programs.program_id = contracts.program_id
         """;
     
     // Virtual table name (for metadata registry)

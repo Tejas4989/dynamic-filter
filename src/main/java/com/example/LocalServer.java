@@ -71,6 +71,10 @@ public class LocalServer {
         System.out.println("  # Get user by ID");
         System.out.println("  curl http://localhost:8080/api/v1/users/1");
         System.out.println();
+        System.out.println("  # Model files API");
+        System.out.println("  curl http://localhost:8080/api/v1/model-files");
+        System.out.println("  curl \"http://localhost:8080/api/v1/model-files?filter=type:eq:REGRESSION\"");
+        System.out.println();
         System.out.println("═══════════════════════════════════════════════════════════════");
         System.out.println("  Press Ctrl+C to stop the server");
         System.out.println("═══════════════════════════════════════════════════════════════");

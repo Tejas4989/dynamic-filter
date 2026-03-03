@@ -154,3 +154,34 @@ INSERT INTO contracts (contract_id, contract_name, program_id) VALUES
     (6, 'Delta Phase 1 - Licensing', 7);
 
 -- Note: Project Eta (deal_id=7) has NO programs - tests LEFT JOIN behavior
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ModelFile Entity Schema
+-- ═══════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS model_files (
+    id           BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name         VARCHAR(200) NOT NULL,
+    type         VARCHAR(50),
+    status       VARCHAR(50) DEFAULT 'ACTIVE',
+    deal_id      BIGINT,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (deal_id) REFERENCES deals(deal_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_files_name ON model_files(name);
+CREATE INDEX IF NOT EXISTS idx_model_files_type ON model_files(type);
+CREATE INDEX IF NOT EXISTS idx_model_files_status ON model_files(status);
+CREATE INDEX IF NOT EXISTS idx_model_files_deal_id ON model_files(deal_id);
+CREATE INDEX IF NOT EXISTS idx_model_files_created_date ON model_files(created_date);
+
+-- Insert sample model files
+INSERT INTO model_files (id, name, type, status, deal_id) VALUES
+    (1, 'Alpha Model v1', 'REGRESSION', 'ACTIVE', 1),
+    (2, 'Alpha Model v2', 'CLASSIFICATION', 'ACTIVE', 1),
+    (3, 'Beta Risk Model', 'REGRESSION', 'PENDING', 2),
+    (4, 'Gamma Scoring', 'CLASSIFICATION', 'ACTIVE', 3),
+    (5, 'Delta Predictor', 'REGRESSION', 'ACTIVE', 4),
+    (6, 'Epsilon Legacy', 'REGRESSION', 'DEPRECATED', 5),
+    (7, 'Zeta Analytics', 'CLASSIFICATION', 'ACTIVE', 6),
+    (8, 'Orphan Model', 'REGRESSION', 'DRAFT', NULL);

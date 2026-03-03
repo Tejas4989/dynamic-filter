@@ -148,13 +148,13 @@ public class DealRepository {
      * 
      * <p>Generated SQL example:</p>
      * <pre>
-     * SELECT d.deal_id
-     * FROM deals d
-     * LEFT JOIN users u ON d.analyst_id = u.user_id
-     * LEFT JOIN programs p ON d.deal_id = p.deal_id
-     * WHERE d.deal_status = :p1
-     * GROUP BY d.deal_id, d.deal_amount
-     * ORDER BY d.deal_amount DESC
+     * SELECT deals.deal_id
+     * FROM deals
+     * LEFT JOIN users ON deals.analyst_id = users.user_id
+     * LEFT JOIN programs ON deals.deal_id = programs.deal_id
+     * WHERE deals.deal_status = :p1
+     * GROUP BY deals.deal_id, deals.deal_amount
+     * ORDER BY deals.deal_amount DESC
      * LIMIT :limit OFFSET :offset
      * </pre>
      */
@@ -174,7 +174,7 @@ public class DealRepository {
         
         // Build GROUP BY clause - always include deal_id, plus any sort columns
         List<String> groupByColumns = new ArrayList<>();
-        groupByColumns.add("d.deal_id");
+        groupByColumns.add("deals.deal_id");
         
         // Add sort columns to GROUP BY (required for ORDER BY to work with GROUP BY)
         if (!request.sorts().isEmpty()) {
@@ -209,7 +209,7 @@ public class DealRepository {
      * Finds a deal by ID with all its programs.
      */
     public Optional<Deal> findById(Long dealId) {
-        String sql = DealFilterView.BASE_SELECT.trim() + " WHERE d.deal_id = :dealId";
+        String sql = DealFilterView.BASE_SELECT.trim() + " WHERE deals.deal_id = :dealId";
         
         List<DealFilterView> flatRows = jdbcClient.sql(sql)
             .param("dealId", dealId)
@@ -284,7 +284,7 @@ public class DealRepository {
         String orderBy = queryBuilder.buildOrderByClause(request.sorts(), filterViewMetadata);
         
         StringBuilder sql = new StringBuilder(DealFilterView.BASE_SELECT.trim());
-        sql.append(" WHERE d.deal_id IN (:dealIds)");
+        sql.append(" WHERE deals.deal_id IN (:dealIds)");
         
         if (!orderBy.isEmpty()) {
             sql.append(" ORDER BY ").append(orderBy);

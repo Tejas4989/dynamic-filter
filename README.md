@@ -11,16 +11,19 @@ A robust, type-safe dynamic filtering system for Spring Framework (non-Boot) app
 - [API Reference](#api-reference)
   - [User API](#user-api)
   - [Deal API (Query Entity Pattern)](#deal-api-query-entity-pattern)
+  - [ModelFile API](#modelfile-api)
 - [Filter Syntax](#filter-syntax)
 - [Sort Syntax](#sort-syntax)
 - [Curl Examples](#curl-examples)
   - [User API Examples](#user-api-examples)
   - [Deal API Examples](#deal-api-examples)
+  - [ModelFile API Examples](#modelfile-api-examples)
 - [Junction Table Queries](#junction-table-queries)
 - [Query Entity Pattern](#query-entity-pattern)
 - [Project Structure](#project-structure)
 - [How It Works](#how-it-works)
 - [Extending the System](#extending-the-system)
+- [Documentation](#documentation)
 
 ---
 
@@ -161,7 +164,19 @@ pkill -f "exec:java"
 - Analyst fields: `analystName` (from users table via FK)
 - Program fields: `programId`, `programName`, `programType`, `programBudget` (from programs table, one-to-many)
 
-> **Note:** The Deal API uses the **Query Entity Pattern** - filtering is done on a flattened view joining deals, users, and programs tables.
+> **Note:** The Deal API uses the **Query Entity Pattern** - filtering is done on a flattened view joining deals, users, programs, and contracts tables.
+
+### ModelFile API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/model-files` | List model files with filtering, sorting, pagination |
+| GET | `/api/v1/model-files/{id}` | Get a single model file by ID |
+| GET | `/api/v1/model-files/metadata/fields` | Get available filterable/sortable fields |
+
+**Filterable Fields:** `id`, `name`, `type`, `status`, `dealId`, `createdDate`
+
+> **Note:** ModelFile is a **single-table** entity—the simplest pattern. Use it as a reference when adding new filterable APIs.
 
 ### Query Parameters
 
@@ -290,6 +305,18 @@ If direction is omitted, defaults to `asc`.
 | Project Epsilon | Epsilon Maintenance (MAINTENANCE) |
 | Project Zeta | Zeta Analysis (RESEARCH), Zeta Prototype (DEV) |
 | Project Eta | (no programs) |
+
+#### ModelFiles Table (Single-Table Example)
+| ID | Name | Type | Status | Deal ID |
+|----|------|------|--------|---------|
+| 1 | Alpha Model v1 | REGRESSION | ACTIVE | 1 |
+| 2 | Alpha Model v2 | CLASSIFICATION | ACTIVE | 1 |
+| 3 | Beta Risk Model | REGRESSION | PENDING | 2 |
+| 4 | Gamma Scoring | CLASSIFICATION | ACTIVE | 3 |
+| 5 | Delta Predictor | REGRESSION | ACTIVE | 4 |
+| 6 | Epsilon Legacy | REGRESSION | DEPRECATED | 5 |
+| 7 | Zeta Analytics | CLASSIFICATION | ACTIVE | 6 |
+| 8 | Orphan Model | REGRESSION | DRAFT | (null) |
 
 ---
 
@@ -657,6 +684,68 @@ curl "http://localhost:8080/api/v1/deals?limit=3&offset=3"
 
 ---
 
+## ModelFile API Examples
+
+The ModelFile API demonstrates the **single-table** pattern—the simplest way to add dynamic filtering to a new API.
+
+### Basic ModelFile Queries
+
+```bash
+# Get all model files
+curl "http://localhost:8080/api/v1/model-files"
+
+# Get model file by ID
+curl "http://localhost:8080/api/v1/model-files/1"
+
+# Get filterable fields
+curl "http://localhost:8080/api/v1/model-files/metadata/fields"
+```
+
+### Filter by Type and Status
+
+```bash
+# Filter by model type (REGRESSION, CLASSIFICATION)
+curl "http://localhost:8080/api/v1/model-files?filter=type:eq:REGRESSION"
+
+# Filter by status
+curl "http://localhost:8080/api/v1/model-files?filter=status:eq:ACTIVE"
+
+# Filter by deal association
+curl "http://localhost:8080/api/v1/model-files?filter=dealId:eq:1"
+```
+
+### Filter by Name
+
+```bash
+# Model file name contains "Alpha"
+curl "http://localhost:8080/api/v1/model-files?filter=name:contains:Alpha"
+
+# Model file name starts with "Beta"
+curl "http://localhost:8080/api/v1/model-files?filter=name:sw:Beta"
+```
+
+### Combined Filters and Sorting
+
+```bash
+# Active REGRESSION models
+curl "http://localhost:8080/api/v1/model-files?filter=type:eq:REGRESSION,status:eq:ACTIVE"
+
+# Filter + sort by name
+curl "http://localhost:8080/api/v1/model-files?filter=status:eq:ACTIVE&sort=name:asc"
+
+# Sort by created date (newest first)
+curl "http://localhost:8080/api/v1/model-files?sort=createdDate:desc"
+```
+
+### Pagination
+
+```bash
+# First 3 model files
+curl "http://localhost:8080/api/v1/model-files?limit=3&offset=0"
+```
+
+---
+
 ## Junction Table Queries
 
 When filtering on fields stored in junction/mapping tables, the system generates appropriate subqueries.
@@ -830,21 +919,31 @@ src/main/java/com/example/
 │   │   └── UserRepository.java     # JdbcClient repository (with junction table support)
 │   └── service/
 │       └── UserService.java        # Service layer
-└── deal/                            # Query Entity Pattern example
+├── deal/                            # Query Entity Pattern example (multi-table)
+│   ├── api/
+│   │   └── DealController.java     # REST controller
+│   ├── entity/
+│   │   ├── Deal.java               # Domain entity (with nested Programs, Contracts)
+│   │   ├── DealFilterView.java     # Query entity (flat view for filtering)
+│   │   ├── Program.java            # Program domain entity
+│   │   └── Contract.java           # Contract domain entity
+│   ├── repository/
+│   │   └── DealRepository.java     # Repository with JOIN query + aggregation
+│   └── service/
+│       └── DealService.java        # Service layer
+└── modelfile/                       # Single-table example (simplest pattern)
     ├── api/
-    │   └── DealController.java     # REST controller
+    │   └── ModelFileController.java
     ├── entity/
-    │   ├── Deal.java               # Domain entity (with nested Programs)
-    │   ├── DealFilterView.java     # Query entity (flat view for filtering)
-    │   └── Program.java            # Program domain entity
+    │   └── ModelFile.java          # Domain entity with FIELD_* / COL_* constants
     ├── repository/
-    │   └── DealRepository.java     # Repository with JOIN query + aggregation
+    │   └── ModelFileRepository.java
     └── service/
-        └── DealService.java        # Service layer
+        └── ModelFileService.java
 
 src/main/resources/
 ├── application.properties          # Database configuration
-├── schema.sql                      # Database schema + sample data (users, deals, programs)
+├── schema.sql                      # Database schema + sample data (users, deals, programs, model_files)
 └── UserAPI.yaml                    # OpenAPI specification
 ```
 
@@ -1042,6 +1141,15 @@ public PageResponse<Order> findAll(FilterRequest request) {
     return PageResponse.of(orders, totalCount, request);
 }
 ```
+
+---
+
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | **Demo script** — Technical walkthrough, reusability highlights, file counts, talking points |
+| [docs/ADDING_NEW_FILTER_TABLE.md](docs/ADDING_NEW_FILTER_TABLE.md) | Step-by-step guide for adding a new filterable API |
 
 ---
 
