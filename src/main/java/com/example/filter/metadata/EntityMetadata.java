@@ -9,17 +9,14 @@ import java.util.Set;
  * Holds metadata for an entity including all filterable/sortable fields.
  *
  * @param entityClass the entity class
- * @param tableName   the database table name
  * @param fields      map of field name to field metadata
  */
 public record EntityMetadata(
     Class<?> entityClass,
-    String tableName,
     Map<String, FieldMetadata> fields
 ) {
     public EntityMetadata {
         Objects.requireNonNull(entityClass, "entityClass cannot be null");
-        Objects.requireNonNull(tableName, "tableName cannot be null");
         fields = fields != null ? Map.copyOf(fields) : Map.of();
     }
     

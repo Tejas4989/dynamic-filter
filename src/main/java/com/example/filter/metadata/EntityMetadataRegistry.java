@@ -1,34 +1,22 @@
 package com.example.filter.metadata;
 
-import com.example.filter.util.StringUtils;
-
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * Registry that extracts and caches entity metadata using reflection.
- * 
- * <p>Discovers filterable fields by scanning for public static final String constants
- * that follow the naming convention: {@code FIELD_*} where the value matches
- * a record component name.</p>
- * 
- * <p>Also discovers column mappings from {@code COL_*} constants.</p>
- * 
+ * Registry that builds and caches entity metadata from an explicit field-to-column mapping.
+ *
+ * <p>Uses a {@code Map<String, String>} to map DTO field names to entity table column names.
+ * Field types are still resolved from the entity class (record components) when available.</p>
+ *
  * <p>This class is thread-safe and caches metadata for performance.</p>
  */
 public final class EntityMetadataRegistry {
-    
-    private static final Pattern FIELD_CONSTANT_PATTERN = Pattern.compile("FIELD_(.+)");
-    private static final Pattern COL_CONSTANT_PATTERN = Pattern.compile("COL_(.+)");
-    private static final String TABLE_NAME_CONSTANT = "TABLE_NAME";
-    
+
     // Thread-safe cache for entity metadata
     private final ConcurrentHashMap<Class<?>, EntityMetadata> metadataCache = new ConcurrentHashMap<>();
     
@@ -45,27 +33,39 @@ public final class EntityMetadataRegistry {
     }
     
     /**
-     * Registers and extracts metadata for an entity class.
-     * 
-     * @param entityClass the entity class to register
-     * @return the extracted metadata
+     * Registers entity metadata using an explicit field-to-column mapping.
+     *
+     * @param entityClass          the entity/DTO class
+     * @param fieldToColumnMapping map of DTO field name to database column name (must not be null)
+     * @return the built metadata
      */
-    public EntityMetadata register(Class<?> entityClass) {
-        return metadataCache.computeIfAbsent(entityClass, this::extractMetadata);
+    public EntityMetadata register(Class<?> entityClass, Map<String, String> fieldToColumnMapping) {
+        Objects.requireNonNull(fieldToColumnMapping, "fieldToColumnMapping cannot be null");
+        Map<String, String> copy = Map.copyOf(fieldToColumnMapping);
+        return metadataCache.computeIfAbsent(entityClass, c -> buildMetadata(c, copy));
     }
-    
+
     /**
      * Gets metadata for an entity class if registered.
      */
     public Optional<EntityMetadata> get(Class<?> entityClass) {
         return Optional.ofNullable(metadataCache.get(entityClass));
     }
-    
+
     /**
-     * Gets metadata for an entity, registering it if not already present.
+     * Gets metadata for an entity. Must be registered first via
+     * {@link #register(Class, Map)}.
+     *
+     * @throws IllegalStateException if the entity has not been registered
      */
     public EntityMetadata getOrRegister(Class<?> entityClass) {
-        return register(entityClass);
+        EntityMetadata metadata = metadataCache.get(entityClass);
+        if (metadata == null) {
+            throw new IllegalStateException(
+                    "Entity " + entityClass.getName() + " is not registered. "
+                            + "Call register(entityClass, fieldToColumnMapping) first.");
+        }
+        return metadata;
     }
     
     /**
@@ -76,100 +76,35 @@ public final class EntityMetadataRegistry {
     }
     
     /**
-     * Extracts metadata from an entity class using reflection.
+     * Builds metadata from the entity class and field-to-column mapping.
      */
-    private EntityMetadata extractMetadata(Class<?> entityClass) {
-        String tableName = extractTableName(entityClass);
-        Map<String, String> columnMappings = extractColumnMappings(entityClass);
-        Map<String, FieldMetadata> fields = extractFieldMetadata(entityClass, columnMappings);
-        
-        return new EntityMetadata(entityClass, tableName, fields);
-    }
-    
-    /**
-     * Extracts table name from TABLE_NAME constant or derives from class name.
-     */
-    private String extractTableName(Class<?> entityClass) {
-        try {
-            Field tableNameField = entityClass.getDeclaredField(TABLE_NAME_CONSTANT);
-            if (isPublicStaticFinalString(tableNameField)) {
-                return (String) tableNameField.get(null);
-            }
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            // Fall through to derive from class name
-        }
-        // Convert class name to snake_case (e.g., User -> users, UserRole -> user_roles)
-        return StringUtils.toSnakeCase(entityClass.getSimpleName()) + "s";
+    private EntityMetadata buildMetadata(Class<?> entityClass, Map<String, String> fieldToColumnMapping) {
+        Map<String, FieldMetadata> fields = buildFieldMetadata(entityClass, fieldToColumnMapping);
+        return new EntityMetadata(entityClass, fields);
     }
 
     /**
-     * Extracts column mappings from COL_* constants.
+     * Builds field metadata from the explicit field-to-column mapping.
+     * Field types are resolved from record components when the entity is a record.
      */
-    private Map<String, String> extractColumnMappings(Class<?> entityClass) {
-        Map<String, String> mappings = new HashMap<>();
-        
-        for (Field field : entityClass.getDeclaredFields()) {
-            if (!isPublicStaticFinalString(field)) {
-                continue;
-            }
-            
-            Matcher matcher = COL_CONSTANT_PATTERN.matcher(field.getName());
-            if (matcher.matches()) {
-                String constantSuffix = matcher.group(1); // e.g., "USER_ID" from "COL_USER_ID"
-                try {
-                    String columnName = (String) field.get(null);
-                    // Convert constant suffix to camelCase field name
-                    String fieldName = constantSuffixToFieldName(constantSuffix);
-                    mappings.put(fieldName, columnName);
-                } catch (IllegalAccessException e) {
-                    // Skip inaccessible fields
-                }
-            }
-        }
-        
-        return mappings;
-    }
-    
-    /**
-     * Extracts field metadata from FIELD_* constants and record components.
-     */
-    private Map<String, FieldMetadata> extractFieldMetadata(Class<?> entityClass, 
-                                                             Map<String, String> columnMappings) {
+    private Map<String, FieldMetadata> buildFieldMetadata(Class<?> entityClass,
+                                                          Map<String, String> fieldToColumnMapping) {
         Map<String, FieldMetadata> fields = new HashMap<>();
-        
-        // Get record components for type information
         Map<String, Class<?>> componentTypes = extractRecordComponentTypes(entityClass);
-        
-        // Scan for FIELD_* constants
-        for (Field field : entityClass.getDeclaredFields()) {
-            if (!isPublicStaticFinalString(field)) {
-                continue;
+
+        for (Map.Entry<String, String> entry : fieldToColumnMapping.entrySet()) {
+            String fieldName = entry.getKey();
+            String columnName = entry.getValue();
+
+            // Resolve field type from record components when available
+            Class<?> fieldType = componentTypes.get(fieldName);
+            if (fieldType == null) {
+                fieldType = Object.class;
             }
-            
-            Matcher matcher = FIELD_CONSTANT_PATTERN.matcher(field.getName());
-            if (matcher.matches()) {
-                try {
-                    String fieldName = (String) field.get(null);
-                    
-                    // Validate that this field exists as a record component
-                    Class<?> fieldType = componentTypes.get(fieldName);
-                    if (fieldType == null) {
-                        // Not a valid record component, skip
-                        continue;
-                    }
-                    
-                    // Get column name from mappings or derive from field name
-                    String columnName = columnMappings.getOrDefault(fieldName, StringUtils.toSnakeCase(fieldName));
-                    
-                    // Create field metadata (all discovered fields are filterable and sortable by default)
-                    fields.put(fieldName, FieldMetadata.of(fieldName, columnName, fieldType));
-                    
-                } catch (IllegalAccessException e) {
-                    // Skip inaccessible fields
-                }
-            }
+
+            fields.put(fieldName, FieldMetadata.of(fieldName, columnName, fieldType));
         }
-        
+
         return fields;
     }
     
@@ -188,39 +123,5 @@ public final class EntityMetadataRegistry {
         }
         
         return types;
-    }
-    
-    /**
-     * Checks if a field is public static final String.
-     */
-    private boolean isPublicStaticFinalString(Field field) {
-        int modifiers = field.getModifiers();
-        return Modifier.isPublic(modifiers)
-            && Modifier.isStatic(modifiers)
-            && Modifier.isFinal(modifiers)
-            && field.getType() == String.class;
-    }
-    
-    /**
-     * Converts a constant suffix like "USER_ID" to field name "userId".
-     */
-    private String constantSuffixToFieldName(String suffix) {
-        StringBuilder result = new StringBuilder();
-        boolean nextUpper = false;
-        
-        for (char c : suffix.toCharArray()) {
-            if (c == '_') {
-                nextUpper = true;
-            } else {
-                if (nextUpper) {
-                    result.append(Character.toUpperCase(c));
-                    nextUpper = false;
-                } else {
-                    result.append(Character.toLowerCase(c));
-                }
-            }
-        }
-        
-        return result.toString();
     }
 }

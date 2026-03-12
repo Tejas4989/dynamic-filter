@@ -23,14 +23,22 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for SqlQueryBuilder.
  */
 class SqlQueryBuilderTest {
-    
+
+    private static final Map<String, String> USER_FIELD_TO_COLUMN = Map.of(
+        "userId", "user_id",
+        "username", "username",
+        "firstName", "first_name",
+        "lastName", "last_name",
+        "roleIds", "role_id"
+    );
+
     private SqlQueryBuilder builder;
     private EntityMetadata metadata;
-    
+
     @BeforeEach
     void setUp() {
         builder = SqlQueryBuilder.getInstance();
-        metadata = EntityMetadataRegistry.getInstance().register(User.class);
+        metadata = EntityMetadataRegistry.getInstance().register(User.class, USER_FIELD_TO_COLUMN);
     }
     
     @Nested
