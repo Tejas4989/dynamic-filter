@@ -76,7 +76,7 @@ public record DealFilterView(
     // Deal fields
     public static final String FIELD_DEAL_ID = "dealId";
     public static final String FIELD_DEAL_NAME = "dealName";
-    public static final String FIELD_ANALYST_ID = "analystId";
+    public static final String FIELD_ANALYST_ID = "analyst.userId";
     public static final String FIELD_DEAL_STATUS = "dealStatus";
     public static final String FIELD_DEAL_AMOUNT = "dealAmount";
     
